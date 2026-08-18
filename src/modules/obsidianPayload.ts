@@ -84,34 +84,72 @@ export async function getCiteKey(item: any): Promise<string> {
 }
 
 async function getBibliography(item: any): Promise<string> {
-  // We prefer BBT bibliography if possible, otherwise we fallback to Zotero's default.
-  // BBT provides formatted bibliography via its RPC or item getter if available.
+  let bibliography = "";
+  const citekey = await getCiteKey(item);
+  const libItemId = `${item.libraryID}:${item.key}`;
+
   try {
-    // Basic fallback using Zotero's QuickCopy (usually APA or similar)
-    const format = Zotero.Prefs.get("export.quickCopy.setting");
-    const bib = Zotero.QuickCopy.unserializeSetting(format);
-    if (bib && bib.mode === "bibliography") {
-      const qs = new Zotero.Translate.Export();
-      qs.setItems([item]);
-      qs.setTranslator(bib.id);
-      return new Promise<string>((resolve) => {
-        qs.setHandler("done", (obj: any, success: boolean) => {
-          if (success && obj && obj.string) {
-            // Cleanup: Remove URLs (http://, https://) as in the Python script
-            const cleanBib = obj.string.replace(/https?:\/\/\S+/g, "");
-            resolve(cleanBib);
-          } else {
-            resolve("");
-          }
-        });
-        qs.translate();
-        setTimeout(() => resolve(""), 1000);
-      });
+    // Attempt to fetch from BBT RPC
+    const bbtResponse = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "item.bibliography",
+            params: [
+                [citekey ? citekey : libItemId],
+                { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
+            ]
+        })
+    });
+    
+    const result = (await bbtResponse.json()) as any;
+    if (result && result.result) {
+        bibliography = result.result;
     }
-  } catch (err) {
-    // ignore
+  } catch(e) {
+     ztoolkit.log("Failed to fetch bibliography from BBT RPC", e);
   }
-  return "";
+
+  // Fallback to Zotero's QuickCopy if BBT failed
+  if (!bibliography) {
+    try {
+      const format = Zotero.Prefs.get("export.quickCopy.setting");
+      const bib = Zotero.QuickCopy.unserializeSetting(format);
+      if (bib && bib.mode === "bibliography") {
+        const qs = new Zotero.Translate.Export();
+        qs.setItems([item]);
+        qs.setTranslator(bib.id);
+        return new Promise<string>((resolve) => {
+          qs.setHandler("done", (obj: any, success: boolean) => {
+            if (success && obj && obj.string) {
+              const cleanBib = obj.string.replace(/https?:\/\/\S+/g, "");
+              resolve(cleanBib);
+            } else {
+              resolve("");
+            }
+          });
+          qs.translate();
+          setTimeout(() => resolve(""), 1000);
+        });
+      }
+    } catch (err) {
+      // ignore
+    }
+  }
+  
+  if (bibliography) {
+    bibliography = bibliography.replace(/https?:\/\/\S+/g, '');
+    bibliography = bibliography.replace(/www\.\S+/g, '');
+    bibliography = bibliography.replace(/doi\.org\/\S+/g, '');
+    bibliography = bibliography.replace(/,\s*\./g, '.');
+    bibliography = bibliography.replace(/,\s*$/g, '.');
+    bibliography = bibliography.replace(/,\s+,/g, ',');
+    bibliography = bibliography.replace(/,\s*\./g, '.');
+    bibliography = bibliography.replace(/\s+/g, ' ').trim();
+  }
+
+  return bibliography;
 }
 
 
