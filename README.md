@@ -61,6 +61,6 @@ npm run build
 
 This command automatically bundles the plugin into a `.xpi` file.
 1. Navigate to the generated `.scaffold/build/` directory inside the project folder.
-2. You will find the newly built `zotero-obsidian-companion.xpi` file there.
+2. You will find the newly built `obsidian.xpi` file there.
 3. Open Zotero, go to **Tools -> Add-ons**.
 4. Click the gear icon (top right) -> **Install Add-on From File...** and select the `.xpi` file.
