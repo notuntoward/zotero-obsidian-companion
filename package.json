@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "description": "Zotero companion for Perplexity Saver literature notes",
   "config": {
-    "addonName": "Zotero Obsidian Companion",
+    "addonName": "Obsidian",
     "addonID": "zotero-obsidian-companion@notuntoward",
     "addonRef": "zoteroobsidian",
     "addonInstance": "ZoteroObsidian",
@@ -30,7 +30,7 @@
     "update-deps": "npm update --save"
   },
   "dependencies": {
-    "zotero-plugin-toolkit": "^4.1.2"
+    "zotero-plugin-toolkit": "^5.1.0-beta.10"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

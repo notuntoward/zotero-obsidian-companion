@@ -8,6 +8,12 @@ declare namespace _ZoteroTypes {
   interface Prefs {
     PluginPrefsMap: {
       "enable": boolean;
+      "obsidianTagName": string;
+      "hotkeyCreateLitNote": string;
+      "hotkeySyncTags": string;
+      "hotkeyToggleLeftPane": string;
+      "hotkeyToggleRightPane": string;
+      "hotkeyOpenLitNote": string;
     };
   }
 }

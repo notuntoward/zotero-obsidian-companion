@@ -1,52 +1,42 @@
 # Zotero Obsidian Companion
 
-Zotero 8/9 plugin that will talk to [Perplexity Saver](https://github.com/notuntoward/obsidian-perplexity-saver).
+Zotero 7 plugin that will talk to [Perplexity Saver](https://github.com/notuntoward/obsidian-perplexity-saver).
 
-**Step 0 only:** a hot-reloading skeleton with one right-click menu item that alerts the selected item title. No note create/open yet.
+Allows creating literature notes directly from Zotero items into your Obsidian vault, and automatically syncs tag indicators (e.g. `obsLitNote`) between Zotero items and your existing Obsidian literature notes.
 
-## Dev environment (Windows)
+## Acknowledgements
 
-1. Install [Node.js 18+](https://nodejs.org/) if you do not already have it.
-2. Create a **separate Zotero development profile** so you do not risk your real library:
-   - Close Zotero.
-   - Run `C:\Program Files\Zotero\zotero.exe -p` (adjust the path if yours differs).
-   - Create a profile named something like `zotero-dev`.
-   - Note the profile folder path (Zotero → Help → Debug Output Logging → or look under `%APPDATA%\Zotero\Zotero\Profiles\`).
-3. Copy `.env.example` to `.env` and set:
+This plugin was inspired by [MarkDB-Connect](https://github.com/daeh/zotero-markdb-connect).
 
-```
-ZOTERO_PLUGIN_ZOTERO_BIN_PATH = C:\\Program Files\\Zotero\\zotero.exe
-ZOTERO_PLUGIN_PROFILE_PATH = C:\\Users\\scott\\AppData\\Roaming\\Zotero\\Zotero\\Profiles\\xxxxxxxx.zotero-dev
-```
+## Installation
 
-Use `\\` in Windows paths.
+1. Go to the [Releases](https://github.com/notuntoward/zotero-obsidian-companion/releases) page and download the latest `.xpi` file. (Or build it yourself, see below).
+2. Open Zotero and go to **Tools -> Add-ons**.
+3. Click the gear icon in the top right corner and select **Install Add-on From File...**.
+4. Select the downloaded `.xpi` file.
+5. Restart Zotero when prompted.
 
-4. Install and start:
+## Build from Source
 
-```
-cd .scratch-repos/zocompanion
-npm install
-npm start
-```
+1. Clone this repository.
+2. Install [Node.js 18+](https://nodejs.org/).
+3. Run `npm install` to install dependencies.
+4. Run `npm run build` to compile the plugin and generate the `.xpi` file.
+5. The output `.xpi` file will be located in the `.scaffold/build/` directory.
+6. Install the `.xpi` file in Zotero via **Tools -> Add-ons -> Gear icon -> Install Add-on From File...**.
 
-`npm start` builds the plugin, launches Zotero with the dev profile, and hot-reloads when `src/` or `addon/` changes.
+## Usage
 
-## Verify
+- Right-click any item in your Zotero library and select **"Create Lit Note"** to push the item's metadata to Obsidian and automatically open the note.
+- The plugin will automatically sync a green tag (default: `obsLitNote`) to any item in Zotero that has a corresponding literature note in Obsidian. This sync happens silently on startup.
+- You can manually trigger the tag sync at any time by right-clicking any item and selecting **"Sync Obsidian Tags"**.
+- Configure the sync tag name in Zotero's **Edit -> Settings -> Zotero Obsidian Companion**.
 
-1. In the launched Zotero, select one item.
-2. Right-click → **Show selected item title**.
-3. An alert should show that item's title.
+## Known Issues / Bugs / TODOs
 
-If the menu item is missing, check Tools → Add-ons that **Zotero Obsidian Companion** is enabled.
-
-## Build an XPI without launching Zotero
-
-```
-npm run build
-```
-
-Output is under `.scaffold/build/`.
-
-## Next
-
-Step 1 will add the HTTP POST that creates a literature note in Obsidian.
+- **Settings Menu Text Clipping:** In the Zotero 7 Add-on preferences window, the plugin name label is occasionally clipped on the right edge of the sidebar even with a shortened name and no icon.
+- **Context Menu Reorganization:** The custom context menu options (Create Lit Note, Open Lit Note, Sync Obsidian Tags) currently need their grouping, order, and icons reorganized and polished to blend better natively.
+- **Improve rendering:** Improve rendering of multiple Zotero notes in the Obsidian note.
+- **Settings configuration:** Make the commands on the context menu configurable via settings options.
+- **Callout Auto-Expansion in Obsidian:** When creating a note from Zotero, Obsidian automatically opens the new note in Live Preview mode. Because the note's cursor is placed inside the top `>[!info]-` callout block, Obsidian temporarily expands the folded callout to allow editing. Attempts to programmatically move the cursor to the bottom of the file (using `setCursor` or `eState`) have so far raced with Live Preview's mounting process, causing the callout to remain expanded upon opening.
+- **Citation Link Generation:** There is currently an issue where citation spans injected into Zotero HTML notes fail to generate `data-citekey` attributes for some URIs, resulting in Obsidian rendering the citation as plain text `(Author, Year)` instead of a functional Markdown link. This seems to stem from how Zotero 7 serializes note content, but debugging is ongoing.

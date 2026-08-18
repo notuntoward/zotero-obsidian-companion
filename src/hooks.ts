@@ -1,7 +1,9 @@
+import { syncObsidianTags } from "./modules/obsidianTagSync";
 import { registerItemMenu } from "./modules/menu";
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
+import { registerHotkeys } from "./modules/hotkeys";
 
 async function onStartup() {
   await Promise.all([
@@ -22,6 +24,13 @@ async function onStartup() {
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
   );
+
+  try {
+    const { syncObsidianTags } = require("./modules/obsidianTagSync");
+    await syncObsidianTags(addon);
+  } catch(e) {
+    Zotero.debug("Tag sync error: " + e);
+  }
 }
 
 async function onMainWindowLoad(win: Window): Promise<void> {
@@ -33,6 +42,7 @@ async function onMainWindowLoad(win: Window): Promise<void> {
   );
 
   registerItemMenu();
+  registerHotkeys();
 
   new ztoolkit.ProgressWindow(addon.data.config.addonName, {
     closeOnClick: true,

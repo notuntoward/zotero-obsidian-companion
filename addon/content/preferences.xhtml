@@ -4,7 +4,40 @@
 <groupbox
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window });"
 >
+  <label><html:h2>Keyboard Shortcuts</html:h2></label>
+  <vbox>
+    <hbox align="center">
+      <label value="Create Lit Note:" style="width: 150px;"/>
+      <html:input id="zotero-prefpane-__addonRef__-hotkeyCreateLitNote"  type="text" placeholder="Click and press shortcut..." readonly="true" style="width: 200px;"/>
+      <label id="zotero-prefpane-__addonRef__-warnCreateLitNote" style="color: red; margin-left: 10px;" value="" hidden="true" />
+    </hbox>
+    <hbox align="center">
+      <label value="Open Lit Note:" style="width: 150px;"/>
+      <html:input id="zotero-prefpane-__addonRef__-hotkeyOpenLitNote"  type="text" placeholder="Click and press shortcut..." readonly="true" style="width: 200px;"/>
+      <label id="zotero-prefpane-__addonRef__-warnOpenLitNote" style="color: red; margin-left: 10px;" value="" hidden="true" />
+    </hbox>
+    <hbox align="center">
+      <label value="Sync Obsidian Tags:" style="width: 150px;"/>
+      <html:input id="zotero-prefpane-__addonRef__-hotkeySyncTags"  type="text" placeholder="Click and press shortcut..." readonly="true" style="width: 200px;"/>
+      <label id="zotero-prefpane-__addonRef__-warnSyncTags" style="color: red; margin-left: 10px;" value="" hidden="true" />
+    </hbox>
+    <hbox align="center">
+      <label value="Toggle Left Pane:" style="width: 150px;"/>
+      <html:input id="zotero-prefpane-__addonRef__-hotkeyToggleLeftPane"  type="text" placeholder="Click and press shortcut..." readonly="true" style="width: 200px;"/>
+      <label id="zotero-prefpane-__addonRef__-warnToggleLeftPane" style="color: red; margin-left: 10px;" value="" hidden="true" />
+    </hbox>
+    <hbox align="center">
+      <label value="Toggle Right Pane:" style="width: 150px;"/>
+      <html:input id="zotero-prefpane-__addonRef__-hotkeyToggleRightPane"  type="text" placeholder="Click and press shortcut..." readonly="true" style="width: 200px;"/>
+      <label id="zotero-prefpane-__addonRef__-warnToggleRightPane" style="color: red; margin-left: 10px;" value="" hidden="true" />
+    </hbox>
+  </vbox>
+  <html:hr />
   <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
+  <hbox align="center">
+    <label data-l10n-id="pref-tag-name" />
+    <html:input id="zotero-prefpane-__addonRef__-obsidianTagName" preference="obsidianTagName" placeholder="obsLitNote" type="text" />
+  </hbox>
   <checkbox
     id="zotero-prefpane-__addonRef__-enable"
     preference="enable"
