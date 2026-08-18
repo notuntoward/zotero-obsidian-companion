@@ -157,24 +157,14 @@ async function getBibliography(item: any): Promise<string> {
     try {
       Zotero.debug("Falling back to native Zotero MLA QuickCopy export...");
       const format = "bibliography=http://www.zotero.org/styles/modern-language-association";
-      const bib = Zotero.QuickCopy.unserializeSetting(format);
-      if (bib && bib.mode === "bibliography") {
-        const qs = new Zotero.Translate.Export();
-        qs.setItems([item]);
-        qs.setTranslator(bib.id);
-        return new Promise<string>((resolve) => {
-          qs.setHandler("done", (obj: any, success: boolean) => {
-            if (success && obj && obj.string) {
-              const cleanBib = obj.string.replace(/https?:\/\/\S+/g, "");
-              resolve(cleanBib);
-            } else {
-              Zotero.debug("Zotero QuickCopy native fallback failed to generate string.");
-              resolve("");
-            }
-          });
-          qs.translate();
-          setTimeout(() => resolve(""), 2000);
-        });
+      
+      // getContentFromItems returns { html: string, text: string } or a Promise in newer Zotero
+      const qcResult = await Zotero.QuickCopy.getContentFromItems([item], format);
+      
+      if (qcResult) {
+        if (qcResult.text) bibliography = qcResult.text;
+        else if (qcResult.html) bibliography = qcResult.html;
+        else if (typeof qcResult === "string") bibliography = qcResult;
       }
     } catch (err) {
       Zotero.debug("Error in Zotero QuickCopy native fallback: " + err);
