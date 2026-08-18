@@ -10,7 +10,7 @@ async function postToObsidian(payload: any): Promise<any> {
     try {
       const xhr = new XMLHttpRequest();
       // Use the localhost URL format required by Obsidian
-      xhr.open("POST", "http://127.0.0.1:27124/litnote", true);
+      xhr.open("POST", "http://127.0.0.1:27124/lit-note", true);
       xhr.setRequestHeader("Content-Type", "application/json");
       xhr.setRequestHeader("Accept", "application/json");
 
