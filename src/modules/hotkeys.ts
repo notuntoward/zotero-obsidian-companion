@@ -1,6 +1,7 @@
 import Addon from "../addon";
 import { KeyModifier } from "zotero-plugin-toolkit";
 import { syncObsidianTags } from "./obsidianTagSync";
+import { regenBibtexKey } from "./regenBibtex";
 
 export function registerHotkeys() {
   addon.data.ztoolkit.Keyboard.register(async (event, options) => {
@@ -22,6 +23,7 @@ export function registerHotkeys() {
       { key: "hotkeySyncTags", action: handleSyncTags },
       { key: "hotkeyToggleLeftPane", action: handleToggleLeftPane },
       { key: "hotkeyToggleRightPane", action: handleToggleRightPane },
+      { key: "hotkeyRegenBibtexKey", action: handleRegenBibtexKey },
     ];
 
     for (const pref of prefs) {
@@ -90,6 +92,14 @@ async function handleToggleRightPane() {
       rightPane.setAttribute("hidden", "true");
     }
   }
+}
+
+async function handleRegenBibtexKey() {
+  const win = (Zotero as any).getMainWindow();
+  if (!win) return;
+  const items = win.ZoteroPane.getSelectedItems();
+  if (!items || items.length === 0) return;
+  await regenBibtexKey(items);
 }
 
 async function handleOpenLitNote() {
