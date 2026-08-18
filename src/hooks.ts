@@ -41,7 +41,7 @@ async function onMainWindowLoad(win: Window): Promise<void> {
     `${addon.data.config.addonRef}-mainWindow.ftl`,
   );
 
-  registerItemMenu();
+  registerItemMenu(addon.data.ztoolkit);
   registerHotkeys();
 
   new ztoolkit.ProgressWindow(addon.data.config.addonName, {

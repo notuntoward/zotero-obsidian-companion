@@ -9,6 +9,7 @@ export function registerPrefsScripts(_window: Window): void {
   };
 
   const doc = _window.document;
+
   const prefs = [
     "hotkeyCreateLitNote",
     "hotkeyOpenLitNote",
@@ -25,7 +26,8 @@ export function registerPrefsScripts(_window: Window): void {
 
     if (!input || !warn) continue;
 
-    // Manual initialization
+    // Manual initialization - for hotkeys we don't use extensions.zotero prefix in the UI for some reason,
+    // so we maintain the existing zoteroobsidian prefix that was working.
     const saved = (Zotero as any).Prefs.get("zoteroobsidian." + pref);
     if (saved) {
       input.value = String(saved);

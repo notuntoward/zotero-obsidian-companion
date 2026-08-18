@@ -9,6 +9,7 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "enable": boolean;
       "obsidianTagName": string;
+      "showPaneToggles": boolean;
       "hotkeyCreateLitNote": string;
       "hotkeySyncTags": string;
       "hotkeyToggleLeftPane": string;

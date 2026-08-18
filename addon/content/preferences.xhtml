@@ -38,11 +38,16 @@
     <label data-l10n-id="pref-tag-name" />
     <html:input id="zotero-prefpane-__addonRef__-obsidianTagName" preference="obsidianTagName" placeholder="obsLitNote" type="text" />
   </hbox>
-  <checkbox
-    id="zotero-prefpane-__addonRef__-enable"
-    preference="enable"
-    data-l10n-id="pref-enable"
-  />
+  
+  <hbox align="center">
+    <html:input type="checkbox" id="zotero-prefpane-__addonRef__-showPaneToggles" preference="showPaneToggles" />
+    <html:label for="zotero-prefpane-__addonRef__-showPaneToggles" data-l10n-id="pref-show-pane-toggles" />
+  </hbox>
+
+  <hbox align="center" style="margin-top: 10px;">
+    <html:input type="checkbox" id="zotero-prefpane-__addonRef__-enable" preference="enable" />
+    <html:label for="zotero-prefpane-__addonRef__-enable" data-l10n-id="pref-enable" />
+  </hbox>
 </groupbox>
 <vbox>
   <html:label
