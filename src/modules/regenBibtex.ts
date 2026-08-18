@@ -1,6 +1,9 @@
 export async function regenBibtexKey(items: any[]) {
   if (!(Zotero as any).BetterBibTeX) {
-    (Zotero as any).warn('Better BibTeX is not installed. Cannot regenerate keys.');
+    const win = (Zotero as any).getMainWindow();
+    if (win) {
+      win.alert('Better BibTeX is not installed. Cannot regenerate keys.');
+    }
     return;
   }
 
@@ -11,7 +14,7 @@ export async function regenBibtexKey(items: any[]) {
     return;
   }
 
-  const Services = (globalThis as any).Services;
+  const win = (Zotero as any).getMainWindow();
 
   for (const item of selectedItems) {
     if (!item.isRegularItem()) continue;
@@ -19,25 +22,23 @@ export async function regenBibtexKey(items: any[]) {
     await item.reload();
     const oldKey = item.getField('citationKey') || '';
 
-    // `propose()` is synchronous and returns a string (or falsy if no key).
+    // propose() is synchronous and returns a string (or falsy if no key).
     const proposedKey = (Zotero as any).BetterBibTeX.KeyManager.propose(item) || '';
 
-    // Show the proposed key in a modal prompt
-    const keyRef = { value: proposedKey };
-    const accepted = Services.prompt.prompt(
-      null,
-      'Edit Citation Key',
-      `${item.getField('title')}\n\nProposed key:`,
-      keyRef,
-      null,
-      {}
-    );
-
-    if (!accepted) {
-      break;
+    let finalKey = "";
+    if (win && win.prompt) {
+      const response = win.prompt(
+        "Edit Citation Key\n\n" + item.getField('title') + "\n\nProposed key:",
+        proposedKey
+      );
+      if (response === null) {
+        break; // user cancelled
+      }
+      finalKey = response;
+    } else {
+      finalKey = proposedKey; // fallback silently if no UI
     }
 
-    const finalKey = keyRef.value;
     if (finalKey && finalKey !== oldKey) {
       item.setField('citationKey', finalKey);
       await item.saveTx({ skipDateModifiedUpdate: true });

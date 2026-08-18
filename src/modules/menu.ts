@@ -1,5 +1,7 @@
 import { getString } from "../utils/locale";
 import { getItemPayload } from "./obsidianPayload";
+import { syncObsidianTags } from "./obsidianTagSync";
+import { regenBibtexKey } from "./regenBibtex";
 import Addon from "../addon";
 import { ZoteroToolkit } from "zotero-plugin-toolkit";
 
@@ -51,13 +53,13 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     tag: "menu",
     id: `${addon.data.config.addonRef}-itemmenu-obsidian-submenu`,
     label: "Obsidian",
-    icon: menuIcon,
+    
     children: [
       {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-create-lit-note`,
         label: "Create Lit Note",
-        icon: menuIcon,
+        
         commandListener: () => {
           (async () => {
             try {
@@ -116,7 +118,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                 }
               }
             } catch (err) {
-              ztoolkit.log("Payload error", err);
+              ztoolkit.log(err as any);
               const win = Zotero.getMainWindow();
               if (win) Zotero.alert(win as any, "Error", String(err));
             }
@@ -127,7 +129,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-open-lit-note`,
         label: "Open Lit Note",
-        icon: menuIcon,
+        
         commandListener: () => {
           (async () => {
             try {
@@ -157,7 +159,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                 if (win) Zotero.alert(win as any, "Error", "No citekey found for item");
               }
             } catch (err) {
-              ztoolkit.log("Payload error", err);
+              ztoolkit.log(err as any);
               const win = Zotero.getMainWindow();
               if (win) Zotero.alert(win as any, "Error", String(err));
             }
@@ -168,15 +170,16 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-sync-obsidian-tags`,
         label: "Has Lit Note?",
-        icon: menuIcon,
+        
         commandListener: () => {
           (async () => {
             const win = (Zotero as any).getMainWindow();
             try {
-              const { syncObsidianTags } = require("./obsidianTagSync");
               await syncObsidianTags(addon, true);
             } catch(e) {
-              if (win) (Zotero as any).alert(win, "Error", String(e));
+              (Zotero as any).warn("Menu Error: " + String(e));
+              const Services = (globalThis as any).Services;
+              if (win && Services && Services.prompt) Services.prompt.alert(win, "Error", String(e));
             }
           })();
         }
@@ -185,7 +188,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-regen-bibtex-key`,
         label: "Regen Citation Key",
-        icon: menuIcon,
+        
         commandListener: () => {
           (async () => {
             const win = (Zotero as any).getMainWindow();
@@ -200,10 +203,11 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               const items = pane.getSelectedItems().filter((item: any) => item.isRegularItem());
               if (!items.length) return;
 
-              const { regenBibtexKey } = require("./regenBibtex");
               await regenBibtexKey(items);
             } catch(e) {
-              if (win) (Zotero as any).alert(win, "Error", String(e));
+              (Zotero as any).warn("Menu Error: " + String(e));
+              const Services = (globalThis as any).Services;
+              if (win && Services && Services.prompt) Services.prompt.alert(win, "Error", String(e));
             }
           })();
         }
