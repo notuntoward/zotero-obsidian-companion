@@ -89,26 +89,70 @@ async function getBibliography(item: any): Promise<string> {
   const libItemId = `${item.libraryID}:${item.key}`;
 
   try {
-    // Attempt to fetch from BBT RPC
-    const bbtResponse = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "item.bibliography",
-            params: [
-                [citekey ? citekey : libItemId],
-                { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
-            ]
-        })
-    });
-    
-    const result = (await bbtResponse.json()) as any;
-    if (result && result.result) {
-        bibliography = result.result;
+    let bbtCitekey = citekey;
+    try {
+        const ckResponse = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "item.citationkey",
+                params: [[libItemId]]
+            })
+        });
+        const ckResult = (await ckResponse.json()) as any;
+        if (ckResult && ckResult.result && ckResult.result[libItemId]) {
+            bbtCitekey = ckResult.result[libItemId];
+        }
+    } catch (e) {
+        Zotero.debug("Failed to resolve bbt citekey: " + e);
+    }
+
+    try {
+        const bbtResponse = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "item.bibliography",
+                params: [
+                    [bbtCitekey],
+                    { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
+                ]
+            })
+        });
+        const result = (await bbtResponse.json()) as any;
+        if (result && result.result) {
+            bibliography = result.result;
+        }
+    } catch(e) {
+        Zotero.debug("Failed to fetch bibliography via citekey: " + e);
+    }
+
+    if (!bibliography) {
+        try {
+            const libBibResp = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    jsonrpc: "2.0",
+                    method: "item.bibliography",
+                    params: [
+                        [libItemId],
+                        { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
+                    ]
+                })
+            });
+            const libBibResult = (await libBibResp.json()) as any;
+            if (libBibResult && libBibResult.result) {
+                bibliography = libBibResult.result;
+            }
+        } catch(e) {
+            Zotero.debug("Failed to fetch bibliography via libItemId: " + e);
+        }
     }
   } catch(e) {
-     ztoolkit.log("Failed to fetch bibliography from BBT RPC", e);
+     Zotero.debug("Failed to fetch bibliography from BBT RPC: " + e);
   }
 
   // Fallback to Zotero's QuickCopy if BBT failed
@@ -238,7 +282,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
                  }
               }
             } catch (e) {
-               ztoolkit.log("Failed to parse data-citation", e);
+               Zotero.debug("Failed to parse data-citation", e);
             }
           }
         }
@@ -247,7 +291,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
           html = doc.body.innerHTML;
         }
       } catch (err) {
-        ztoolkit.log("Error parsing note HTML with DOMParser", err);
+        Zotero.debug("Error parsing note HTML with DOMParser", err);
       }
       
       notes.push(html);
