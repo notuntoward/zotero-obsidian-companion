@@ -133,6 +133,7 @@ export function registerItemMenu(): void {
           for (const item of items) {
             const payload = await getItemPayload(item);
             
+            
             let json = await postToObsidian({
               action: "create",
               data: [payload]
