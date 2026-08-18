@@ -43,11 +43,24 @@ Configure settings in Zotero via **Edit -> Settings -> Obsidian**:
 - **Obsidian Tag Name** (default: `obsLitNote`): The tag assigned to Zotero items when a corresponding literature note exists in Obsidian. The plugin automatically assigns a green color to this tag on startup.
 - **Show Pane Toggles:** Shows or hides the Toggle Left/Right Pane options in the context menu.
 
-## Build from Source
+## Building from Source
 
-1. Clone this repository.
-2. Install [Node.js 18+](https://nodejs.org/).
-3. Run `npm install` to install dependencies.
-4. Run `npm run build` to compile the plugin and generate the `.xpi` file.
-5. The output `.xpi` file will be located in the `.scaffold/build/` directory.
-6. Install the `.xpi` file in Zotero via **Tools -> Add-ons -> Gear icon -> Install Add-on From File...**.
+This plugin is built using the [Zotero Plugin Toolkit](https://github.com/windingwind/zotero-plugin-toolkit) framework.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/notuntoward/zotero-obsidian-companion.git
+cd zotero-obsidian-companion
+
+# 2. Install dependencies (requires Node.js 18+)
+npm install
+
+# 3. Compile and package the plugin
+npm run build
+```
+
+This command automatically bundles the plugin into a `.xpi` file.
+1. Navigate to the generated `.scaffold/build/` directory inside the project folder.
+2. You will find the newly built `zotero-obsidian-companion.xpi` file there.
+3. Open Zotero, go to **Tools -> Add-ons**.
+4. Click the gear icon (top right) -> **Install Add-on From File...** and select the `.xpi` file.
