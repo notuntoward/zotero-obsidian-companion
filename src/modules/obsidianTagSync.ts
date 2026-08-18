@@ -1,7 +1,7 @@
 import Addon from "../addon";
 import { getCiteKey } from "./obsidianPayload";
 
-export async function syncObsidianTags(addon: Addon) {
+export async function syncObsidianTags(addon: Addon, isManual: boolean = false) {
   try {
     addon.data.ztoolkit.log("Starting Obsidian tag sync...");
 
@@ -67,9 +67,11 @@ export async function syncObsidianTags(addon: Addon) {
 
   } catch(e) {
     addon.data.ztoolkit.log("Error in syncObsidianTags: " + e);
-    const win = (Zotero as any).getMainWindow();
-    if (win) {
-      (Zotero as any).alert(win, "Obsidian Tag Sync Error", String(e));
+    if (isManual) {
+      const win = (Zotero as any).getMainWindow();
+      if (win) {
+        (Zotero as any).alert(win, "Obsidian Tag Sync Error", String(e));
+      }
     }
   }
 }

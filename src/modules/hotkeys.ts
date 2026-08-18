@@ -55,7 +55,7 @@ async function handleCreateLitNote() {
 }
 
 async function handleSyncTags() {
-  await syncObsidianTags(addon);
+  await syncObsidianTags(addon, true);
 }
 
 async function handleToggleLeftPane() {

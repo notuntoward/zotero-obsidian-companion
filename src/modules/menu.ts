@@ -90,7 +90,7 @@ export function registerItemMenu(): void {
         const win = (Zotero as any).getMainWindow();
         try {
           const { syncObsidianTags } = require("./obsidianTagSync");
-          await syncObsidianTags(addon);
+          await syncObsidianTags(addon, true);
         } catch(e) {
           if (win) (Zotero as any).alert(win, "Error", String(e));
         }
