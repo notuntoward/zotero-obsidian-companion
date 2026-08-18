@@ -91,16 +91,15 @@ async function getBibliography(item: any): Promise<string> {
   try {
     let bbtCitekey = citekey;
     try {
-        const ckResponse = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+        const ckResponse = await (Zotero as any).HTTP.request("POST", "http://127.0.0.1:23119/better-bibtex/json-rpc", {
             body: JSON.stringify({
                 jsonrpc: "2.0",
                 method: "item.citationkey",
                 params: [[libItemId]]
-            })
+            }),
+            headers: { "Content-Type": "application/json" }
         });
-        const ckResult = (await ckResponse.json()) as any;
+        const ckResult = JSON.parse(ckResponse.responseText);
         if (ckResult && ckResult.result && ckResult.result[libItemId]) {
             bbtCitekey = ckResult.result[libItemId];
         }
@@ -109,9 +108,7 @@ async function getBibliography(item: any): Promise<string> {
     }
 
     try {
-        const bbtResponse = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+        const bbtResponse = await (Zotero as any).HTTP.request("POST", "http://127.0.0.1:23119/better-bibtex/json-rpc", {
             body: JSON.stringify({
                 jsonrpc: "2.0",
                 method: "item.bibliography",
@@ -119,9 +116,10 @@ async function getBibliography(item: any): Promise<string> {
                     [bbtCitekey],
                     { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
                 ]
-            })
+            }),
+            headers: { "Content-Type": "application/json" }
         });
-        const result = (await bbtResponse.json()) as any;
+        const result = JSON.parse(bbtResponse.responseText);
         if (result && result.result) {
             bibliography = result.result;
         }
@@ -131,9 +129,7 @@ async function getBibliography(item: any): Promise<string> {
 
     if (!bibliography) {
         try {
-            const libBibResp = await fetch("http://localhost:23119/better-bibtex/json-rpc", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
+            const libBibResp = await (Zotero as any).HTTP.request("POST", "http://127.0.0.1:23119/better-bibtex/json-rpc", {
                 body: JSON.stringify({
                     jsonrpc: "2.0",
                     method: "item.bibliography",
@@ -141,9 +137,10 @@ async function getBibliography(item: any): Promise<string> {
                         [libItemId],
                         { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
                     ]
-                })
+                }),
+                headers: { "Content-Type": "application/json" }
             });
-            const libBibResult = (await libBibResp.json()) as any;
+            const libBibResult = JSON.parse(libBibResp.responseText);
             if (libBibResult && libBibResult.result) {
                 bibliography = libBibResult.result;
             }
@@ -155,10 +152,11 @@ async function getBibliography(item: any): Promise<string> {
      Zotero.debug("Failed to fetch bibliography from BBT RPC: " + e);
   }
 
-  // Fallback to Zotero's QuickCopy if BBT failed
+  // Fallback to Zotero's internal QuickCopy Engine if BBT failed or isn't installed
   if (!bibliography) {
     try {
-      const format = Zotero.Prefs.get("export.quickCopy.setting");
+      Zotero.debug("Falling back to native Zotero MLA QuickCopy export...");
+      const format = "bibliography=http://www.zotero.org/styles/modern-language-association";
       const bib = Zotero.QuickCopy.unserializeSetting(format);
       if (bib && bib.mode === "bibliography") {
         const qs = new Zotero.Translate.Export();
@@ -170,15 +168,16 @@ async function getBibliography(item: any): Promise<string> {
               const cleanBib = obj.string.replace(/https?:\/\/\S+/g, "");
               resolve(cleanBib);
             } else {
+              Zotero.debug("Zotero QuickCopy native fallback failed to generate string.");
               resolve("");
             }
           });
           qs.translate();
-          setTimeout(() => resolve(""), 1000);
+          setTimeout(() => resolve(""), 2000);
         });
       }
     } catch (err) {
-      // ignore
+      Zotero.debug("Error in Zotero QuickCopy native fallback: " + err);
     }
   }
   
