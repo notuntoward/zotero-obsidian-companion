@@ -18,7 +18,7 @@ async function onStartup() {
     pluginID: addon.data.config.addonID,
     src: rootURI + "content/preferences.xhtml",
     label: getString("prefs-title"),
-    image: `chrome://${addon.data.config.addonRef}/content/icons/favicon.svg`,
+    image: `chrome://${addon.data.config.addonRef}/content/icons/settings-icon.svg`,
   });
 
   await Promise.all(
