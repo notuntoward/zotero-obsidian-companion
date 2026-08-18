@@ -180,6 +180,33 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
             }
           })();
         }
+      },
+      {
+        tag: "menuitem",
+        id: `${addon.data.config.addonRef}-itemmenu-regen-bibtex-key`,
+        label: "Regen Citation Key",
+        icon: menuIcon,
+        commandListener: () => {
+          (async () => {
+            const win = (Zotero as any).getMainWindow();
+            try {
+              let pane = undefined;
+              if (typeof Zotero.getActiveZoteroPane === "function") pane = Zotero.getActiveZoteroPane();
+              if (!pane) {
+                pane = win ? (win as any).ZoteroPane : null;
+              }
+              if (!pane) throw new Error("Could not find ZoteroPane");
+
+              const items = pane.getSelectedItems().filter((item: any) => item.isRegularItem());
+              if (!items.length) return;
+
+              const { regenBibtexKey } = require("./regenBibtex");
+              await regenBibtexKey(items);
+            } catch(e) {
+              if (win) (Zotero as any).alert(win, "Error", String(e));
+            }
+          })();
+        }
       }
     ]
   });
