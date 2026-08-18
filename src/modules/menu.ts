@@ -54,6 +54,8 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     id: `${addon.data.config.addonRef}-itemmenu-obsidian-submenu`,
     label: "Obsidian",
     
+    icon: menuIcon,
+    
     children: [
       {
         tag: "menuitem",
