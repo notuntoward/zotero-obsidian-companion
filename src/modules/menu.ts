@@ -31,7 +31,7 @@ async function postToObsidian(payload: any): Promise<any> {
       };
       
       xhr.onerror = function() {
-        resolve({ success: false, error: "Connection to Obsidian failed. Is Obsidian open?" });
+        resolve({ success: false, error: "Connection to Obsidian failed. Is an Obsidian vault with the Perplexity Saver plugin open?" });
       };
       
       xhr.ontimeout = function() {
