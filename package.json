@@ -27,7 +27,8 @@
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "zotero-plugin release",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "update-deps": "npm update --save"
+    "update-deps": "npm update --save",
+    "prepare": "husky"
   },
   "dependencies": {
     "zotero-plugin-toolkit": "^5.1.0-beta.10"
@@ -36,6 +37,8 @@
     "@eslint/js": "^9.22.0",
     "@types/node": "^22.13.10",
     "eslint": "^9.22.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
     "prettier": "^3.5.3",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.26.1",
@@ -55,6 +58,15 @@
           "htmlWhitespaceSensitivity": "css"
         }
       }
+    ]
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,yml,xhtml,css,ftl}": [
+      "prettier --write"
     ]
   }
 }
