@@ -1,6 +1,4 @@
 /* eslint-disable no-undef */
-pref("enable", true);
-
 pref("extensions.zotero.zoteroobsidian.obsidianTagName", "obsLitNote");
 pref("extensions.zotero.zoteroobsidian.showPaneToggles", true);
 
