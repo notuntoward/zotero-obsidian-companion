@@ -8,14 +8,19 @@ export function registerHotkeys() {
     if (options.type !== "keydown") return;
 
     const target = event.target as HTMLElement;
-    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+    if (
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable)
+    ) {
       return;
     }
 
     const shortcut = new KeyModifier(event);
-    
+
     // Ignore lone modifiers
-    if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
+    if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
 
     const prefs = [
       { key: "hotkeyCreateLitNote", action: handleCreateLitNote },
@@ -27,7 +32,9 @@ export function registerHotkeys() {
     ];
 
     for (const pref of prefs) {
-      const savedHotkeyStr = String((Zotero as any).Prefs.get("zoteroobsidian." + pref.key) || "");
+      const savedHotkeyStr = String(
+        (Zotero as any).Prefs.get("zoteroobsidian." + pref.key) || "",
+      );
       if (savedHotkeyStr) {
         // Use ztoolkit's robust equality check
         const savedShortcut = new KeyModifier(savedHotkeyStr);
@@ -52,7 +59,7 @@ async function handleCreateLitNote() {
   if (menuItem) {
     menuItem.doCommand();
   } else {
-    win.ZoteroPane.doCommand('zotero-obsidian-companion-create-lit-note');
+    win.ZoteroPane.doCommand("zotero-obsidian-companion-create-lit-note");
   }
 }
 

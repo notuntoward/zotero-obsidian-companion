@@ -21,7 +21,7 @@ export function registerPrefsScripts(_window: Window): void {
 
   for (const pref of prefs) {
     const inputId = `zotero-prefpane-${addon.data.config.addonRef}-${pref}`;
-    const warnId = `zotero-prefpane-${addon.data.config.addonRef}-warn${pref.replace('hotkey', '')}`;
+    const warnId = `zotero-prefpane-${addon.data.config.addonRef}-warn${pref.replace("hotkey", "")}`;
     const input = doc.getElementById(inputId) as HTMLInputElement;
     const warn = doc.getElementById(warnId) as HTMLElement;
 
@@ -38,8 +38,8 @@ export function registerPrefsScripts(_window: Window): void {
       e.preventDefault();
       e.stopPropagation();
 
-      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
-      if (e.key === 'Backspace' || e.key === 'Escape') {
+      if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+      if (e.key === "Backspace" || e.key === "Escape") {
         input.value = "";
         (Zotero as any).Prefs.set("zoteroobsidian." + pref, "");
         warn.hidden = true;
@@ -68,10 +68,14 @@ function checkConflict(hotkeyString: string): string | null {
   const keys = win.document.querySelectorAll("key");
   for (const key of Array.from(keys)) {
     const modifiers = (key as Element).getAttribute("modifiers") || "";
-    const keycode = (key as Element).getAttribute("key") || (key as Element).getAttribute("keycode") || "";
-    
+    const keycode =
+      (key as Element).getAttribute("key") ||
+      (key as Element).getAttribute("keycode") ||
+      "";
+
     const zoteroModStr = modifiers.toLowerCase();
-    const hasCtrl = zoteroModStr.includes("control") || zoteroModStr.includes("accel");
+    const hasCtrl =
+      zoteroModStr.includes("control") || zoteroModStr.includes("accel");
     const hasAlt = zoteroModStr.includes("alt");
     const hasShift = zoteroModStr.includes("shift");
     const hasMeta = zoteroModStr.includes("meta");
@@ -82,12 +86,17 @@ function checkConflict(hotkeyString: string): string | null {
     const myHasShift = myModStr.includes("shift");
     const myHasMeta = myModStr.includes("meta");
 
-    if (hasCtrl === myHasCtrl && hasAlt === myHasAlt && hasShift === myHasShift && hasMeta === myHasMeta) {
-       let keyLetter = keycode.replace('VK_', '').toLowerCase();
-       let myKeyLetter = hotkeyString.split('+').pop()?.trim().toLowerCase();
-       if (keyLetter === myKeyLetter) {
-         return (key as Element).getAttribute("id") || "Unknown Command";
-       }
+    if (
+      hasCtrl === myHasCtrl &&
+      hasAlt === myHasAlt &&
+      hasShift === myHasShift &&
+      hasMeta === myHasMeta
+    ) {
+      const keyLetter = keycode.replace("VK_", "").toLowerCase();
+      const myKeyLetter = hotkeyString.split("+").pop()?.trim().toLowerCase();
+      if (keyLetter === myKeyLetter) {
+        return (key as Element).getAttribute("id") || "Unknown Command";
+      }
     }
   }
   return null;

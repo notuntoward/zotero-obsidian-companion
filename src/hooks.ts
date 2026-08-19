@@ -26,9 +26,10 @@ async function onStartup() {
   );
 
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { syncObsidianTags } = require("./modules/obsidianTagSync");
     await syncObsidianTags(addon);
-  } catch(e) {
+  } catch (e) {
     Zotero.debug("Tag sync error: " + e);
   }
 }

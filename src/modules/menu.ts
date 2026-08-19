@@ -15,31 +15,39 @@ async function postToObsidian(payload: any): Promise<any> {
       xhr.setRequestHeader("Accept", "application/json");
 
       xhr.timeout = 5000;
-      
-      xhr.onload = function() {
+
+      xhr.onload = function () {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             resolve(JSON.parse(xhr.responseText));
-          } catch(e) {
+          } catch (e) {
             resolve({ success: false, error: "Invalid JSON response" });
           }
         } else {
           let errStr = xhr.statusText;
-          try { errStr = JSON.parse(xhr.responseText).error || errStr; } catch(e){}
+          try {
+            errStr = JSON.parse(xhr.responseText).error || errStr;
+          } catch (e) {
+            /* ignore */
+          }
           resolve({ success: false, error: `HTTP ${xhr.status}: ${errStr}` });
         }
       };
-      
-      xhr.onerror = function() {
-        resolve({ success: false, error: "Connection to Obsidian failed. Is an Obsidian vault with the Perplexity Saver plugin open?" });
+
+      xhr.onerror = function () {
+        resolve({
+          success: false,
+          error:
+            "Connection to Obsidian failed. Is an Obsidian vault with the Perplexity Saver plugin open?",
+        });
       };
-      
-      xhr.ontimeout = function() {
+
+      xhr.ontimeout = function () {
         resolve({ success: false, error: "Connection timed out." });
       };
 
       xhr.send(JSON.stringify(payload));
-    } catch(err) {
+    } catch (err) {
       resolve({ success: false, error: String(err) });
     }
   });
@@ -53,15 +61,15 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     tag: "menu",
     id: `${addon.data.config.addonRef}-itemmenu-obsidian-submenu`,
     label: "Obsidian",
-    
+
     icon: menuIcon,
-    
+
     children: [
       {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-create-lit-note`,
         label: "Create Lit Note",
-        
+
         commandListener: () => {
           (async () => {
             try {
@@ -75,37 +83,72 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               }
               if (!pane) throw new Error("Could not find ZoteroPane");
 
-              const items = pane.getSelectedItems().filter((item: any) => item.isRegularItem());
+              const items = pane
+                .getSelectedItems()
+                .filter((item: any) => item.isRegularItem());
               if (!items.length) return;
-              
+
               const Services = (globalThis as any).Services;
               const win = Zotero.getMainWindow();
 
               for (const item of items) {
                 const payload = await getItemPayload(item);
-                let json = await postToObsidian({ action: "create", data: [payload] });
+                let json = await postToObsidian({
+                  action: "create",
+                  data: [payload],
+                });
                 if (!json) continue;
-                
+
                 if (json.success) {
-                  const tagName = String((Zotero as any).Prefs.get(addon.data.config.prefsPrefix + ".obsidianTagName", true) || "obsLitNote");
+                  const tagName = String(
+                    (Zotero as any).Prefs.get(
+                      addon.data.config.prefsPrefix + ".obsidianTagName",
+                      true,
+                    ) || "obsLitNote",
+                  );
                   item.addTag(tagName);
                   await item.saveTx();
                 } else if (json.error === "exists") {
                   if (Services && Services.prompt) {
-                    const flags = (Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0) +
-                                 (Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_1) +
-                                 (Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_2);
+                    const flags =
+                      Services.prompt.BUTTON_TITLE_IS_STRING *
+                        Services.prompt.BUTTON_POS_0 +
+                      Services.prompt.BUTTON_TITLE_IS_STRING *
+                        Services.prompt.BUTTON_POS_1 +
+                      Services.prompt.BUTTON_TITLE_IS_STRING *
+                        Services.prompt.BUTTON_POS_2;
                     const result = Services.prompt.confirmEx(
-                      win, "Overwrite Note?", `The note for '${payload.citekey}' already exists in Obsidian. Do you want to overwrite it?`,
-                      flags, "Overwrite", "Skip", "Cancel", null, {}
+                      win,
+                      "Overwrite Note?",
+                      `The note for '${payload.citekey}' already exists in Obsidian. Do you want to overwrite it?`,
+                      flags,
+                      "Overwrite",
+                      "Skip",
+                      "Cancel",
+                      null,
+                      {},
                     );
-                    
-                    if (result === 0) { // Overwrite
-                      json = await postToObsidian({ action: "create", data: [payload], force: true });
+
+                    if (result === 0) {
+                      // Overwrite
+                      json = await postToObsidian({
+                        action: "create",
+                        data: [payload],
+                        force: true,
+                      });
                       if (json && !json.success) {
-                        Zotero.alert(win, "Obsidian Plugin Error", json.error || "Unknown error");
+                        Zotero.alert(
+                          win,
+                          "Obsidian Plugin Error",
+                          json.error || "Unknown error",
+                        );
                       } else if (json && json.success) {
-                        const tagName = String((Zotero as any).Prefs.get(addon.data.config.prefsPrefix + ".obsidianTagName", true) || "obsLitNote");
+                        const tagName = String(
+                          (Zotero as any).Prefs.get(
+                            addon.data.config.prefsPrefix + ".obsidianTagName",
+                            true,
+                          ) || "obsLitNote",
+                        );
                         item.addTag(tagName);
                         await item.saveTx();
                       }
@@ -113,10 +156,18 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                       break;
                     }
                   } else {
-                    Zotero.alert(win as any, "File Exists", `The note for '${payload.citekey}' already exists.`);
+                    Zotero.alert(
+                      win as any,
+                      "File Exists",
+                      `The note for '${payload.citekey}' already exists.`,
+                    );
                   }
                 } else {
-                  Zotero.alert(win as any, "Obsidian Plugin Error", json.error || "Unknown error");
+                  Zotero.alert(
+                    win as any,
+                    "Obsidian Plugin Error",
+                    json.error || "Unknown error",
+                  );
                 }
               }
             } catch (err) {
@@ -125,40 +176,59 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               if (win) Zotero.alert(win as any, "Error", String(err));
             }
           })();
-        }
+        },
       },
       {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-open-lit-note`,
         label: "Open Lit Note",
-        
+
         commandListener: () => {
           (async () => {
             try {
               let pane = undefined;
-              if (typeof Zotero.getActiveZoteroPane === "function") pane = Zotero.getActiveZoteroPane();
+              if (typeof Zotero.getActiveZoteroPane === "function")
+                pane = Zotero.getActiveZoteroPane();
               if (!pane) {
                 const win = Zotero.getMainWindow();
                 pane = win ? (win as any).ZoteroPane : null;
               }
               if (!pane) throw new Error("Could not find ZoteroPane");
 
-              const items = pane.getSelectedItems().filter((item: any) => item.isRegularItem());
+              const items = pane
+                .getSelectedItems()
+                .filter((item: any) => item.isRegularItem());
               if (!items.length) return;
-              
+
               const win = Zotero.getMainWindow();
               const payload = await getItemPayload(items[0]);
               if (payload.citekey) {
-                const json = await postToObsidian({ action: "open", citekey: payload.citekey });
+                const json = await postToObsidian({
+                  action: "open",
+                  citekey: payload.citekey,
+                });
                 if (json && !json.success) {
                   if (json.error && json.error.includes("not found")) {
-                     Zotero.alert(win as any, "Note Missing", `The note for '${payload.citekey}' does not exist in the Obsidian vault.`);
+                    Zotero.alert(
+                      win as any,
+                      "Note Missing",
+                      `The note for '${payload.citekey}' does not exist in the Obsidian vault.`,
+                    );
                   } else {
-                     Zotero.alert(win as any, "Obsidian Plugin Error", json.error || "Unknown error");
+                    Zotero.alert(
+                      win as any,
+                      "Obsidian Plugin Error",
+                      json.error || "Unknown error",
+                    );
                   }
                 }
               } else {
-                if (win) Zotero.alert(win as any, "Error", "No citekey found for item");
+                if (win)
+                  Zotero.alert(
+                    win as any,
+                    "Error",
+                    "No citekey found for item",
+                  );
               }
             } catch (err) {
               ztoolkit.log(err as any);
@@ -166,55 +236,60 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               if (win) Zotero.alert(win as any, "Error", String(err));
             }
           })();
-        }
+        },
       },
       {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-sync-obsidian-tags`,
         label: "Has Lit Note?",
-        
+
         commandListener: () => {
           (async () => {
             const win = (Zotero as any).getMainWindow();
             try {
               await syncObsidianTags(addon, true);
-            } catch(e) {
+            } catch (e) {
               (Zotero as any).warn("Menu Error: " + String(e));
               const Services = (globalThis as any).Services;
-              if (win && Services && Services.prompt) Services.prompt.alert(win, "Error", String(e));
+              if (win && Services && Services.prompt)
+                Services.prompt.alert(win, "Error", String(e));
             }
           })();
-        }
+        },
       },
       {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-regen-bibtex-key`,
         label: "Regen Citation Key",
-        
+
         commandListener: () => {
           (async () => {
             const win = (Zotero as any).getMainWindow();
             try {
               let pane = undefined;
-              if (typeof Zotero.getActiveZoteroPane === "function") pane = Zotero.getActiveZoteroPane();
+              if (typeof Zotero.getActiveZoteroPane === "function")
+                pane = Zotero.getActiveZoteroPane();
               if (!pane) {
                 pane = win ? (win as any).ZoteroPane : null;
               }
               if (!pane) throw new Error("Could not find ZoteroPane");
 
-              const items = pane.getSelectedItems().filter((item: any) => item.isRegularItem());
+              const items = pane
+                .getSelectedItems()
+                .filter((item: any) => item.isRegularItem());
               if (!items.length) return;
 
               await regenBibtexKey(items);
-            } catch(e) {
+            } catch (e) {
               (Zotero as any).warn("Menu Error: " + String(e));
               const Services = (globalThis as any).Services;
-              if (win && Services && Services.prompt) Services.prompt.alert(win, "Error", String(e));
+              if (win && Services && Services.prompt)
+                Services.prompt.alert(win, "Error", String(e));
             }
           })();
-        }
-      }
-    ]
+        },
+      },
+    ],
   });
 
   // 2. Toggle Left Pane
@@ -223,7 +298,10 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     id: `${addon.data.config.addonRef}-itemmenu-toggle-left-pane`,
     label: "Toggle Left Pane",
     isHidden: () => {
-      const show = (Zotero as any).Prefs.get(addon.data.config.prefsPrefix + ".showPaneToggles", true);
+      const show = (Zotero as any).Prefs.get(
+        addon.data.config.prefsPrefix + ".showPaneToggles",
+        true,
+      );
       return show === false || show === "false";
     },
     commandListener: () => {
@@ -250,7 +328,10 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     id: `${addon.data.config.addonRef}-itemmenu-toggle-right-pane`,
     label: "Toggle Right Pane",
     isHidden: () => {
-      const show = (Zotero as any).Prefs.get(addon.data.config.prefsPrefix + ".showPaneToggles", true);
+      const show = (Zotero as any).Prefs.get(
+        addon.data.config.prefsPrefix + ".showPaneToggles",
+        true,
+      );
       return show === false || show === "false";
     },
     commandListener: () => {

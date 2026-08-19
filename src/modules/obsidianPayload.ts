@@ -1,4 +1,3 @@
-
 /**
  * Extracts payload data from Zotero items to send to Obsidian Perplexity Saver.
  */
@@ -57,7 +56,9 @@ export async function getCiteKey(item: any): Promise<string> {
   try {
     const key = getFieldSafe(item, "citationKey");
     if (key) citekey = key;
-  } catch(e) {}
+  } catch (e) {
+    /* ignore */
+  }
 
   // Fallback to Better BibTeX if available
   if (!citekey && Zotero.BetterBibTeX && Zotero.BetterBibTeX.KeyManager) {
@@ -70,13 +71,18 @@ export async function getCiteKey(item: any): Promise<string> {
   }
 
   if (citekey) {
+    // eslint-disable-next-line no-control-regex
     const windowsInvalidChars = /[<>:"/\\|?*\x00-\x1F]/;
     if (windowsInvalidChars.test(citekey)) {
-        throw new Error(`Cannot create note for citation key '${citekey}'.\n\nReason: Filename contains invalid character(s). These characters cannot be used in filenames on Windows.\n\nPlease edit the citation key in Zotero to fix this issue.`);
+      throw new Error(
+        `Cannot create note for citation key '${citekey}'.\n\nReason: Filename contains invalid character(s). These characters cannot be used in filenames on Windows.\n\nPlease edit the citation key in Zotero to fix this issue.`,
+      );
     }
     const reservedPattern = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
     if (reservedPattern.test(citekey)) {
-        throw new Error(`Cannot create note for citation key '${citekey}'.\n\nReason: '${citekey}' is a reserved Windows device name.\n\nPlease edit the citation key in Zotero to fix this issue.`);
+      throw new Error(
+        `Cannot create note for citation key '${citekey}'.\n\nReason: '${citekey}' is a reserved Windows device name.\n\nPlease edit the citation key in Zotero to fix this issue.`,
+      );
     }
   }
 
@@ -91,76 +97,102 @@ async function getBibliography(item: any): Promise<string> {
   try {
     let bbtCitekey = citekey;
     try {
-        const ckResponse = await (Zotero as any).HTTP.request("POST", "http://127.0.0.1:23119/better-bibtex/json-rpc", {
-            body: JSON.stringify({
-                jsonrpc: "2.0",
-                method: "item.citationkey",
-                params: [[libItemId]]
-            }),
-            headers: { "Content-Type": "application/json" }
-        });
-        const ckResult = JSON.parse(ckResponse.responseText);
-        if (ckResult && ckResult.result && ckResult.result[libItemId]) {
-            bbtCitekey = ckResult.result[libItemId];
-        }
+      const ckResponse = await (Zotero as any).HTTP.request(
+        "POST",
+        "http://127.0.0.1:23119/better-bibtex/json-rpc",
+        {
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "item.citationkey",
+            params: [[libItemId]],
+          }),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      const ckResult = JSON.parse(ckResponse.responseText);
+      if (ckResult && ckResult.result && ckResult.result[libItemId]) {
+        bbtCitekey = ckResult.result[libItemId];
+      }
     } catch (e) {
-        Zotero.debug("Failed to resolve bbt citekey: " + e);
+      Zotero.debug("Failed to resolve bbt citekey: " + e);
     }
 
     try {
-        const bbtResponse = await (Zotero as any).HTTP.request("POST", "http://127.0.0.1:23119/better-bibtex/json-rpc", {
-            body: JSON.stringify({
-                jsonrpc: "2.0",
-                method: "item.bibliography",
-                params: [
-                    [bbtCitekey],
-                    { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
-                ]
-            }),
-            headers: { "Content-Type": "application/json" }
-        });
-        const result = JSON.parse(bbtResponse.responseText);
-        if (result && result.result) {
-            bibliography = result.result;
-        }
-    } catch(e) {
-        Zotero.debug("Failed to fetch bibliography via citekey: " + e);
+      const bbtResponse = await (Zotero as any).HTTP.request(
+        "POST",
+        "http://127.0.0.1:23119/better-bibtex/json-rpc",
+        {
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "item.bibliography",
+            params: [
+              [bbtCitekey],
+              {
+                contentType: "text",
+                id: "modern-language-association",
+                locale: "en-US",
+                quickCopy: false,
+              },
+            ],
+          }),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      const result = JSON.parse(bbtResponse.responseText);
+      if (result && result.result) {
+        bibliography = result.result;
+      }
+    } catch (e) {
+      Zotero.debug("Failed to fetch bibliography via citekey: " + e);
     }
 
     if (!bibliography) {
-        try {
-            const libBibResp = await (Zotero as any).HTTP.request("POST", "http://127.0.0.1:23119/better-bibtex/json-rpc", {
-                body: JSON.stringify({
-                    jsonrpc: "2.0",
-                    method: "item.bibliography",
-                    params: [
-                        [libItemId],
-                        { contentType: "text", id: "modern-language-association", locale: "en-US", quickCopy: false }
-                    ]
-                }),
-                headers: { "Content-Type": "application/json" }
-            });
-            const libBibResult = JSON.parse(libBibResp.responseText);
-            if (libBibResult && libBibResult.result) {
-                bibliography = libBibResult.result;
-            }
-        } catch(e) {
-            Zotero.debug("Failed to fetch bibliography via libItemId: " + e);
+      try {
+        const libBibResp = await (Zotero as any).HTTP.request(
+          "POST",
+          "http://127.0.0.1:23119/better-bibtex/json-rpc",
+          {
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              method: "item.bibliography",
+              params: [
+                [libItemId],
+                {
+                  contentType: "text",
+                  id: "modern-language-association",
+                  locale: "en-US",
+                  quickCopy: false,
+                },
+              ],
+            }),
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        const libBibResult = JSON.parse(libBibResp.responseText);
+        if (libBibResult && libBibResult.result) {
+          bibliography = libBibResult.result;
         }
+      } catch (e) {
+        Zotero.debug("Failed to fetch bibliography via libItemId: " + e);
+      }
     }
-  } catch(e) {
-     Zotero.debug("Failed to fetch bibliography from BBT RPC: " + e);
+  } catch (e) {
+    Zotero.debug("Failed to fetch bibliography from BBT RPC: " + e);
   }
 
   // Fallback to Zotero's internal QuickCopy Engine if BBT failed or isn't installed
   if (!bibliography) {
     try {
       Zotero.debug("Falling back to native Zotero MLA QuickCopy export...");
-      const format = "bibliography=http://www.zotero.org/styles/modern-language-association";
-      
+      const format =
+        "bibliography=http://www.zotero.org/styles/modern-language-association";
+
       // getContentFromItems returns { html: string, text: string } or a Promise in newer Zotero
-      const qcResult = await Zotero.QuickCopy.getContentFromItems([item], format);
-      
+      const qcResult = await Zotero.QuickCopy.getContentFromItems(
+        [item],
+        format,
+      );
+
       if (qcResult) {
         if (qcResult.text) bibliography = qcResult.text;
         else if (qcResult.html) bibliography = qcResult.html;
@@ -170,21 +202,20 @@ async function getBibliography(item: any): Promise<string> {
       Zotero.debug("Error in Zotero QuickCopy native fallback: " + err);
     }
   }
-  
+
   if (bibliography) {
-    bibliography = bibliography.replace(/https?:\/\/\S+/g, '');
-    bibliography = bibliography.replace(/www\.\S+/g, '');
-    bibliography = bibliography.replace(/doi\.org\/\S+/g, '');
-    bibliography = bibliography.replace(/,\s*\./g, '.');
-    bibliography = bibliography.replace(/,\s*$/g, '.');
-    bibliography = bibliography.replace(/,\s+,/g, ',');
-    bibliography = bibliography.replace(/,\s*\./g, '.');
-    bibliography = bibliography.replace(/\s+/g, ' ').trim();
+    bibliography = bibliography.replace(/https?:\/\/\S+/g, "");
+    bibliography = bibliography.replace(/www\.\S+/g, "");
+    bibliography = bibliography.replace(/doi\.org\/\S+/g, "");
+    bibliography = bibliography.replace(/,\s*\./g, ".");
+    bibliography = bibliography.replace(/,\s*$/g, ".");
+    bibliography = bibliography.replace(/,\s+,/g, ",");
+    bibliography = bibliography.replace(/,\s*\./g, ".");
+    bibliography = bibliography.replace(/\s+/g, " ").trim();
   }
 
   return bibliography;
 }
-
 
 function getFieldSafe(item: any, fieldName: string): string | undefined {
   try {
@@ -197,23 +228,26 @@ function getFieldSafe(item: any, fieldName: string): string | undefined {
 
 export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
   const citekey = await getCiteKey(item);
-  
+
   const tags = item.getTags().map((t: any) => t.tag);
-  const collections = item.getCollections().map((id: number) => {
-    const col = Zotero.Collections.get(id);
-    return col ? col.name : "";
-  }).filter((n: string) => n);
+  const collections = item
+    .getCollections()
+    .map((id: number) => {
+      const col = Zotero.Collections.get(id);
+      return col ? col.name : "";
+    })
+    .filter((n: string) => n);
 
   const creators = item.getCreators().map((c: any) => ({
     firstName: c.firstName,
     lastName: c.lastName,
     name: c.name,
-    creatorType: Zotero.CreatorTypes.getName(c.creatorTypeID)
+    creatorType: Zotero.CreatorTypes.getName(c.creatorTypeID),
   }));
 
   const attachments: ZoteroAttachment[] = [];
   const notes: string[] = [];
-  
+
   const attachmentIDs = item.getAttachments();
   for (const id of attachmentIDs) {
     const att = Zotero.Items.get(id);
@@ -221,7 +255,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
       attachments.push({
         title: att.getField("title"),
         path: att.getFilePath(),
-        url: att.getField("url")
+        url: att.getField("url"),
       });
     }
   }
@@ -231,7 +265,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
     const note = Zotero.Items.get(id);
     if (note) {
       let html = note.getNote();
-      
+
       try {
         // Parse the HTML using DOMParser (available in Firefox/Zotero environment)
         let parser;
@@ -242,7 +276,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
         }
         const doc = parser.parseFromString(html, "text/html");
         const citations = doc.querySelectorAll(".citation[data-citation]");
-        
+
         let modified = false;
         for (const citeNode of Array.from(citations)) {
           const cite = citeNode as Element;
@@ -256,33 +290,33 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
               }
               const data = JSON.parse(decodedStr);
               if (data.citationItems && data.citationItems.length > 0) {
-                 const uris = data.citationItems[0].uris;
-                 if (uris && uris.length > 0) {
-                   const uri = uris[0];
-                   const relItem = Zotero.URI.getURIItem(uri);
-                   if (relItem) {
-                     const citekey = await getCiteKey(relItem);
-                     if (citekey) {
-                       cite.setAttribute("data-citekey", citekey);
-                       cite.setAttribute("data-zotero-uri", uri);
-                       modified = true;
-                     }
-                   }
-                 }
+                const uris = data.citationItems[0].uris;
+                if (uris && uris.length > 0) {
+                  const uri = uris[0];
+                  const relItem = Zotero.URI.getURIItem(uri);
+                  if (relItem) {
+                    const citekey = await getCiteKey(relItem);
+                    if (citekey) {
+                      cite.setAttribute("data-citekey", citekey);
+                      cite.setAttribute("data-zotero-uri", uri);
+                      modified = true;
+                    }
+                  }
+                }
               }
             } catch (e) {
-               Zotero.debug("Failed to parse data-citation", e);
+              Zotero.debug("Failed to parse data-citation", e);
             }
           }
         }
-        
+
         if (modified) {
           html = doc.body.innerHTML;
         }
       } catch (err) {
         Zotero.debug("Error parsing note HTML with DOMParser", err);
       }
-      
+
       notes.push(html);
     }
   }

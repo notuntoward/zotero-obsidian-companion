@@ -1,13 +1,21 @@
 import Addon from "../addon";
 import { getCiteKey } from "./obsidianPayload";
 
-export async function syncObsidianTags(addon: Addon, isManual: boolean = false) {
+export async function syncObsidianTags(
+  addon: Addon,
+  isManual: boolean = false,
+) {
   try {
     addon.data.ztoolkit.log("Starting Obsidian tag sync...");
 
-    const req = await (Zotero as any).HTTP.request("GET", "http://127.0.0.1:27124/lit-notes");
+    const req = await (Zotero as any).HTTP.request(
+      "GET",
+      "http://127.0.0.1:27124/lit-notes",
+    );
     if (req.status !== 200) {
-      addon.data.ztoolkit.log("Failed to fetch lit-notes from Obsidian, status: " + req.status);
+      addon.data.ztoolkit.log(
+        "Failed to fetch lit-notes from Obsidian, status: " + req.status,
+      );
       return;
     }
     const data = JSON.parse(req.responseText);
@@ -17,18 +25,30 @@ export async function syncObsidianTags(addon: Addon, isManual: boolean = false) 
     }
 
     const obsCitekeys = new Set(data.citekeys);
-    
+
     // Get setting
-    const tagName = String((Zotero as any).Prefs.get(addon.data.config.prefsPrefix + ".obsidianTagName") || "obsLitNote");
+    const tagName = String(
+      (Zotero as any).Prefs.get(
+        addon.data.config.prefsPrefix + ".obsidianTagName",
+      ) || "obsLitNote",
+    );
 
     // Set tag color globally for the user library
     try {
-      await (Zotero as any).Tags.setColor((Zotero as any).Libraries.userLibraryID, tagName, "#5cb85c");
-    } catch(e) {
+      await (Zotero as any).Tags.setColor(
+        (Zotero as any).Libraries.userLibraryID,
+        tagName,
+        "#5cb85c",
+      );
+    } catch (e) {
       addon.data.ztoolkit.log("Failed to set tag color: " + e);
     }
 
-    const items = await (Zotero as any).Items.getAll((Zotero as any).Libraries.userLibraryID, false, false);
+    const items = await (Zotero as any).Items.getAll(
+      (Zotero as any).Libraries.userLibraryID,
+      false,
+      false,
+    );
     let added = 0;
     let removed = 0;
 
@@ -50,7 +70,9 @@ export async function syncObsidianTags(addon: Addon, isManual: boolean = false) 
       }
     }
 
-    addon.data.ztoolkit.log(`Obsidian tag sync complete. Added: ${added}, Removed: ${removed}, Total checked: ${items.length}, Citekeys from Obsidian: ${obsCitekeys.size}`);
+    addon.data.ztoolkit.log(
+      `Obsidian tag sync complete. Added: ${added}, Removed: ${removed}, Total checked: ${items.length}, Citekeys from Obsidian: ${obsCitekeys.size}`,
+    );
     // Show a disappearing notification instead of an intrusive alert
     if (added > 0 || removed > 0) {
       new addon.data.ztoolkit.ProgressWindow("Obsidian Tag Sync", {
@@ -64,8 +86,7 @@ export async function syncObsidianTags(addon: Addon, isManual: boolean = false) 
         })
         .show();
     }
-
-  } catch(e) {
+  } catch (e) {
     addon.data.ztoolkit.log("Error in syncObsidianTags: " + e);
     if (isManual) {
       const win = (Zotero as any).getMainWindow();
