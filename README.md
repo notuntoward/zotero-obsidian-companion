@@ -40,8 +40,10 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 Configure settings in Zotero via **Edit -> Settings -> Obsidian**:
 
 - **Keyboard Shortcuts:** Assign custom hotkeys to all commands (Create Lit Note, Open Lit Note, Sync Tags, Toggle Panes, Regen BibTeX Key).
-- **Obsidian Tag Name** (default: `obsLitNote`): The tag assigned to Zotero items when a corresponding literature note exists in Obsidian. The plugin automatically assigns a green color to this tag on startup.
-- **Show Pane Toggles:** Shows or hides the Toggle Left/Right Pane options in the context menu.
+- **Obsidian Integration:**
+  - **Tag for Zotero items with an Obsidian note** (default: `obsLitNote`): The tag assigned to Zotero items when a corresponding literature note exists in Obsidian. The plugin automatically assigns a green color to this tag on startup.
+- **Zotero Interface:**
+  - **Show pane toggling commands on context menu:** Shows or hides the Toggle Left/Right Pane options in the right-click menu.
 
 ## Building from Source
 
