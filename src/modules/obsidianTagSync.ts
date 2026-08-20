@@ -91,7 +91,16 @@ export async function syncObsidianTags(
     if (isManual) {
       const win = (Zotero as any).getMainWindow();
       if (win) {
-        (Zotero as any).alert(win, "Obsidian Tag Sync Error", String(e));
+        let msg = String(e);
+        if (
+          msg.includes("fetch failed") ||
+          msg.includes("Failed to fetch") ||
+          msg.includes("NetworkError")
+        ) {
+          msg =
+            "Connection to Obsidian failed.\n\nPlease ensure:\n1. Obsidian is currently running.\n2. The 'Perplexity Saver' plugin is installed and enabled in your Obsidian vault.";
+        }
+        (Zotero as any).alert(win, "Obsidian Tag Sync Error", msg);
       }
     }
   }

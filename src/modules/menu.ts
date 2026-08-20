@@ -38,7 +38,7 @@ async function postToObsidian(payload: any): Promise<any> {
         resolve({
           success: false,
           error:
-            "Connection to Obsidian failed. Is an Obsidian vault with the Perplexity Saver plugin open?",
+            "Connection to Obsidian failed.\n\nPlease ensure:\n1. Obsidian is currently running.\n2. The 'Perplexity Saver' plugin is installed and enabled in your Obsidian vault.",
         });
       };
 
