@@ -241,7 +241,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
       {
         tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-sync-obsidian-tags`,
-        label: "Has Lit Note?",
+        label: "Sync Has-note Indicators",
 
         commandListener: () => {
           (async () => {

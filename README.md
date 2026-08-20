@@ -32,7 +32,7 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 
 - **Create Lit Note:** Extracts the Zotero item's metadata, abstract, authors, and notes, and pushes them to Obsidian. Obsidian automatically generates the Markdown file and opens it. If a note already exists, Zotero will prompt you to overwrite it.
 - **Open Lit Note:** Tells Obsidian to instantly jump to the literature note corresponding to this Zotero item (based on the citekey).
-- **Sync Obsidian Tags:** Manually forces Zotero to check which literature notes exist in your Obsidian vault and updates the colored tag indicators in Zotero. (This also happens automatically on startup).
+- **Sync Has-note Indicators:** Manually forces Zotero to check which literature notes exist in your Obsidian vault and updates the colored tag indicators in Zotero. (This also happens automatically on startup).
 - **Regen Citation Key:** Forces Better BibTeX to regenerate the citation key for the selected item(s).
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
 
