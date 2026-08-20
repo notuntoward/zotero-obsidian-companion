@@ -51,6 +51,7 @@ export async function syncObsidianTags(
     );
     let added = 0;
     let removed = 0;
+    let itemsWithNotes = 0;
 
     let pw: any = null;
     if (isManual) {
@@ -71,6 +72,7 @@ export async function syncObsidianTags(
         const citekey = await getCiteKey(item);
         const hasNote = obsCitekeys.has(citekey);
         const hasTag = item.hasTag(tagName);
+        if (hasNote) itemsWithNotes++;
 
         if (hasNote && !hasTag) {
           item.addTag(tagName);
@@ -98,21 +100,21 @@ export async function syncObsidianTags(
 
     if (isManual) {
       pw.changeLine({
-        text: `Sync complete! Tags added: ${added}, Tags removed: ${removed}`,
+        text: `Sync complete! ${itemsWithNotes} of ${total} items have notes. (Added: ${added}, Removed: ${removed})`,
         type: "success",
         progress: 100,
-      }).show(3000);
+      }).show(8000);
     } else if (added > 0 || removed > 0) {
       // Show a disappearing notification automatically if things changed
       new addon.data.ztoolkit.ProgressWindow("Obsidian Tag Sync", {
         closeOnClick: true,
       })
         .createLine({
-          text: `Tags added: ${added}, Tags removed: ${removed}`,
+          text: `${itemsWithNotes} items have notes. (Added: ${added}, Removed: ${removed})`,
           type: "success",
           progress: 100,
         })
-        .show(3000);
+        .show(8000);
     }
   } catch (e) {
     addon.data.ztoolkit.log("Error in syncObsidianTags: " + e);
