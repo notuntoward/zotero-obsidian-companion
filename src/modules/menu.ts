@@ -137,11 +137,14 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                         force: true,
                       });
                       if (json && !json.success) {
-                        Zotero.alert(
-                          win,
-                          "Obsidian Plugin Error",
-                          json.error || "Unknown error",
-                        );
+                        let title = "Obsidian Plugin Error";
+                        if (
+                          json.error &&
+                          json.error.includes("Connection to Obsidian failed")
+                        ) {
+                          title = "Connection Error";
+                        }
+                        Zotero.alert(win, title, json.error || "Unknown error");
                       } else if (json && json.success) {
                         const tagName = String(
                           (Zotero as any).Prefs.get(
@@ -163,9 +166,16 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                     );
                   }
                 } else {
+                  let title = "Obsidian Plugin Error";
+                  if (
+                    json.error &&
+                    json.error.includes("Connection to Obsidian failed")
+                  ) {
+                    title = "Connection Error";
+                  }
                   Zotero.alert(
                     win as any,
-                    "Obsidian Plugin Error",
+                    title,
                     json.error || "Unknown error",
                   );
                 }
@@ -215,9 +225,16 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                       `The note for '${payload.citekey}' does not exist in the Obsidian vault.`,
                     );
                   } else {
+                    let title = "Obsidian Plugin Error";
+                    if (
+                      json.error &&
+                      json.error.includes("Connection to Obsidian failed")
+                    ) {
+                      title = "Connection Error";
+                    }
                     Zotero.alert(
                       win as any,
-                      "Obsidian Plugin Error",
+                      title,
                       json.error || "Unknown error",
                     );
                   }
