@@ -257,25 +257,6 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
       },
       {
         tag: "menuitem",
-        id: `${addon.data.config.addonRef}-itemmenu-sync-obsidian-tags`,
-        label: "Sync Has-note Indicators",
-
-        commandListener: () => {
-          (async () => {
-            const win = (Zotero as any).getMainWindow();
-            try {
-              await syncObsidianTags(addon, true);
-            } catch (e) {
-              (Zotero as any).warn("Menu Error: " + String(e));
-              const Services = (globalThis as any).Services;
-              if (win && Services && Services.prompt)
-                Services.prompt.alert(win, "Error", String(e));
-            }
-          })();
-        },
-      },
-      {
-        tag: "menuitem",
         id: `${addon.data.config.addonRef}-itemmenu-regen-bibtex-key`,
         label: "Regen Citation Key",
 
@@ -297,6 +278,25 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               if (!items.length) return;
 
               await regenBibtexKey(items);
+            } catch (e) {
+              (Zotero as any).warn("Menu Error: " + String(e));
+              const Services = (globalThis as any).Services;
+              if (win && Services && Services.prompt)
+                Services.prompt.alert(win, "Error", String(e));
+            }
+          })();
+        },
+      },
+      {
+        tag: "menuitem",
+        id: `${addon.data.config.addonRef}-itemmenu-sync-obsidian-tags`,
+        label: "Sync Has-note Indicators",
+
+        commandListener: () => {
+          (async () => {
+            const win = (Zotero as any).getMainWindow();
+            try {
+              await syncObsidianTags(addon, true);
             } catch (e) {
               (Zotero as any).warn("Menu Error: " + String(e));
               const Services = (globalThis as any).Services;
