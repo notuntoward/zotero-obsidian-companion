@@ -36,10 +36,10 @@ describe("obsidianConnection", () => {
         ztoolkit: {
           ProgressWindow: vi.fn(function () {
             return {
-              createLine: vi.fn().mockReturnValue({
-                show: vi.fn(),
-                change: vi.fn(),
-              }),
+              createLine: vi.fn().mockReturnThis(),
+              show: vi.fn().mockReturnThis(),
+              changeLine: vi.fn().mockReturnThis(),
+              win: { close: vi.fn() },
               close: vi.fn(),
             };
           }),
@@ -135,8 +135,21 @@ describe("obsidianConnection", () => {
   });
 
   describe("launchObsidian", () => {
-    it("calls Zotero.launchURL with obsidian://open", () => {
-      launchObsidian();
+    it("launches via shell subprocess on Windows", async () => {
+      mockZotero.isWin = true;
+      await launchObsidian();
+      expect(mockZotero.Utilities.Internal.subprocess).toHaveBeenCalledWith(
+        "cmd.exe",
+        ["/c", "start", "", "obsidian://open"],
+      );
+    });
+
+    it("falls back to Zotero.launchURL if shell launch fails", async () => {
+      mockZotero.isWin = true;
+      mockZotero.Utilities.Internal.subprocess.mockRejectedValueOnce(
+        new Error("cmd failed"),
+      );
+      await launchObsidian();
       expect(mockZotero.launchURL).toHaveBeenCalledWith("obsidian://open");
     });
   });
@@ -158,12 +171,17 @@ describe("obsidianConnection", () => {
       mockZotero.Utilities.Internal.subprocess.mockResolvedValueOnce(
         "INFO: No tasks are running\n",
       );
-      // 3. First poll check: ready!
+      // 3. Shell launch in launchObsidian:
+      mockZotero.Utilities.Internal.subprocess.mockResolvedValueOnce("");
+      // 4. First poll check: ready!
       mockZotero.HTTP.request.mockResolvedValueOnce({ status: 200 });
 
       const res = await ensureObsidianConnection({ maxWaitMs: 3000 });
       expect(res.ready).toBe(true);
-      expect(mockZotero.launchURL).toHaveBeenCalledWith("obsidian://open");
+      expect(mockZotero.Utilities.Internal.subprocess).toHaveBeenCalledWith(
+        "cmd.exe",
+        ["/c", "start", "", "obsidian://open"],
+      );
     });
 
     it("returns timeout error when auto-launch times out", async () => {

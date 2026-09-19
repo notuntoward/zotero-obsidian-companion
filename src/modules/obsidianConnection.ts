@@ -63,8 +63,57 @@ export async function isObsidianProcessRunning(): Promise<boolean> {
 
 /**
  * Request the operating system to launch Obsidian via its registered URI protocol handler.
+ * Configures Zotero's handler service to avoid confirmation prompts and launches via OS shell.
  */
-export function launchObsidian(): void {
+export async function launchObsidian(): Promise<void> {
+  // 1. Tell Zotero's handler service not to ask before handling obsidian:// URIs
+  try {
+    const Components = (globalThis as any).Components;
+    if (Components && Components.classes) {
+      const eps = Components.classes[
+        "@mozilla.org/uriloader/external-protocol-service;1"
+      ]?.getService(Components.interfaces.nsIExternalProtocolService);
+      const hs = Components.classes[
+        "@mozilla.org/uriloader/handler-service;1"
+      ]?.getService(Components.interfaces.nsIHandlerService);
+      if (eps && hs) {
+        const handlerInfo = eps.getProtocolHandlerInfo("obsidian");
+        handlerInfo.preferredAction =
+          Components.interfaces.nsIHandlerInfo.useSystemDefault;
+        handlerInfo.alwaysAskBeforeHandling = false;
+        hs.store(handlerInfo);
+      }
+    }
+  } catch (e) {
+    Zotero.debug(`[zoteroobsidian] Handler service config error: ${e}`);
+  }
+
+  // 2. Launch via OS shell directly to avoid browser security confirmation dialogs
+  try {
+    if (Zotero.isWin) {
+      await Zotero.Utilities.Internal.subprocess("cmd.exe", [
+        "/c",
+        "start",
+        "",
+        "obsidian://open",
+      ]);
+      return;
+    } else if (Zotero.isMac) {
+      await Zotero.Utilities.Internal.subprocess("open", ["obsidian://open"]);
+      return;
+    } else if (Zotero.isLinux) {
+      await Zotero.Utilities.Internal.subprocess("xdg-open", [
+        "obsidian://open",
+      ]);
+      return;
+    }
+  } catch (e) {
+    Zotero.debug(
+      `[zoteroobsidian] Shell launch error, falling back to launchURL: ${e}`,
+    );
+  }
+
+  // 3. Fallback to standard Zotero.launchURL
   try {
     Zotero.launchURL("obsidian://open");
   } catch (e) {
@@ -95,36 +144,34 @@ export async function ensureObsidianConnection(
     const totalSteps = Math.ceil(maxWait / interval);
 
     let pw: any = null;
-    let line: any = null;
     try {
       const toolkit = addon?.data?.ztoolkit;
       if (toolkit && toolkit.ProgressWindow) {
         pw = new toolkit.ProgressWindow("Obsidian", {
           closeOnClick: true,
         });
-        line = pw.createLine({
+        pw.createLine({
           text:
             options.progressMessage ||
             "Obsidian is not running. Launching Obsidian...",
           progress: 0,
-        });
-        line.show(-1);
+        }).show(-1);
       }
     } catch (e) {
       Zotero.debug(`[zoteroobsidian] ProgressWindow error: ${e}`);
     }
 
-    launchObsidian();
+    await launchObsidian();
 
     for (let step = 1; step <= totalSteps; step++) {
       await Zotero.Promise.delay(interval);
 
-      if (line) {
+      if (pw && typeof pw.changeLine === "function") {
         const progressPercent = Math.min(
           95,
           Math.round((step / totalSteps) * 100),
         );
-        line.change({
+        pw.changeLine({
           text:
             options.progressMessage ||
             "Waiting for Obsidian and Perplexity Saver to start...",
@@ -133,19 +180,29 @@ export async function ensureObsidianConnection(
       }
 
       if (await isObsidianServerReady()) {
-        if (line) {
-          line.change({
-            text: "Obsidian connected.",
-            type: "success",
-            progress: 100,
-          });
-          setTimeout(() => {
-            try {
-              pw?.close();
-            } catch {
-              /* ignore */
-            }
-          }, 1200);
+        if (pw) {
+          if (typeof pw.changeLine === "function") {
+            pw.changeLine({
+              text: "Obsidian connected.",
+              type: "success",
+              progress: 100,
+            });
+          }
+          if (typeof pw.show === "function") {
+            pw.show(1200);
+          } else {
+            setTimeout(() => {
+              try {
+                if (typeof pw?.win?.close === "function") {
+                  pw.win.close();
+                } else if (typeof pw?.close === "function") {
+                  pw.close();
+                }
+              } catch {
+                /* ignore */
+              }
+            }, 1200);
+          }
         }
         return { ready: true };
       }
@@ -153,7 +210,11 @@ export async function ensureObsidianConnection(
 
     // Timed out
     try {
-      pw?.close();
+      if (typeof pw?.win?.close === "function") {
+        pw.win.close();
+      } else if (typeof pw?.close === "function") {
+        pw.close();
+      }
     } catch {
       /* ignore */
     }
