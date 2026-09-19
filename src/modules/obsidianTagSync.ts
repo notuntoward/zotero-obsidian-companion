@@ -1,5 +1,11 @@
 import Addon from "../addon";
 import { getCiteKey } from "./obsidianPayload";
+import {
+  ensureObsidianConnection,
+  isObsidianServerReady,
+} from "./obsidianConnection";
+
+declare const Zotero: any;
 
 export async function syncObsidianTags(
   addon: Addon,
@@ -8,7 +14,33 @@ export async function syncObsidianTags(
   try {
     addon.data.ztoolkit.log("Starting Obsidian tag sync...");
 
-    const req = await (Zotero as any).HTTP.request(
+    if (isManual) {
+      const conn = await ensureObsidianConnection({
+        progressMessage: "Launching Obsidian to sync tags...",
+      });
+      if (!conn.ready) {
+        const win = Zotero.getMainWindow();
+        if (win) {
+          Zotero.alert(
+            win,
+            "Connection Error",
+            conn.error || "Connection to Obsidian failed.",
+          );
+        }
+        return;
+      }
+    } else {
+      // In background mode, skip silently if Obsidian is not already open
+      const ready = await isObsidianServerReady();
+      if (!ready) {
+        addon.data.ztoolkit.log(
+          "Obsidian server is not responding; skipping background tag sync.",
+        );
+        return;
+      }
+    }
+
+    const req = await Zotero.HTTP.request(
       "GET",
       "http://127.0.0.1:27124/lit-notes",
     );
@@ -28,15 +60,16 @@ export async function syncObsidianTags(
 
     // Get setting
     const tagName = String(
-      (Zotero as any).Prefs.get(
+      Zotero.Prefs.get(
         addon.data.config.prefsPrefix + ".obsidianTagName",
+        true,
       ) || "obsLitNote",
     );
 
     // Set tag color globally for the user library
     try {
-      await (Zotero as any).Tags.setColor(
-        (Zotero as any).Libraries.userLibraryID,
+      await Zotero.Tags.setColor(
+        Zotero.Libraries.userLibraryID,
         tagName,
         "#5cb85c",
       );
@@ -44,8 +77,8 @@ export async function syncObsidianTags(
       addon.data.ztoolkit.log("Failed to set tag color: " + e);
     }
 
-    const items = await (Zotero as any).Items.getAll(
-      (Zotero as any).Libraries.userLibraryID,
+    const items = await Zotero.Items.getAll(
+      Zotero.Libraries.userLibraryID,
       false,
       false,
     );
@@ -119,21 +152,9 @@ export async function syncObsidianTags(
   } catch (e) {
     addon.data.ztoolkit.log("Error in syncObsidianTags: " + e);
     if (isManual) {
-      const win = (Zotero as any).getMainWindow();
+      const win = Zotero.getMainWindow();
       if (win) {
-        let msg = String(e);
-        let title = "Sync Error";
-        if (
-          msg.includes("fetch failed") ||
-          msg.includes("Failed to fetch") ||
-          msg.includes("NetworkError") ||
-          msg.includes("Error connecting to server")
-        ) {
-          msg =
-            "Connection to Obsidian failed.\n\nPlease ensure:\n1. Obsidian is currently running.\n2. The 'Perplexity Saver' plugin is installed and enabled in your Obsidian vault.";
-          title = "Connection Error";
-        }
-        (Zotero as any).alert(win, title, msg);
+        Zotero.alert(win, "Sync Error", String(e));
       }
     }
   }

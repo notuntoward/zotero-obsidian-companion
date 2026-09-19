@@ -2,55 +2,20 @@ import { getString } from "../utils/locale";
 import { getItemPayload } from "./obsidianPayload";
 import { syncObsidianTags } from "./obsidianTagSync";
 import { regenBibtexKey } from "./regenBibtex";
+import { ensureObsidianConnection, postToObsidian } from "./obsidianConnection";
+import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
 import Addon from "../addon";
 import { ZoteroToolkit } from "zotero-plugin-toolkit";
 
-async function postToObsidian(payload: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    try {
-      const xhr = new XMLHttpRequest();
-      // Use the localhost URL format required by Obsidian
-      xhr.open("POST", "http://127.0.0.1:27124/lit-note", true);
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.setRequestHeader("Accept", "application/json");
+declare const Zotero: any;
+declare const addon: any;
 
-      xhr.timeout = 5000;
-
-      xhr.onload = function () {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch (e) {
-            resolve({ success: false, error: "Invalid JSON response" });
-          }
-        } else {
-          let errStr = xhr.statusText;
-          try {
-            errStr = JSON.parse(xhr.responseText).error || errStr;
-          } catch (e) {
-            /* ignore */
-          }
-          resolve({ success: false, error: `HTTP ${xhr.status}: ${errStr}` });
-        }
-      };
-
-      xhr.onerror = function () {
-        resolve({
-          success: false,
-          error:
-            "Connection to Obsidian failed.\n\nPlease ensure:\n1. Obsidian is currently running.\n2. The 'Perplexity Saver' plugin is installed and enabled in your Obsidian vault.",
-        });
-      };
-
-      xhr.ontimeout = function () {
-        resolve({ success: false, error: "Connection timed out." });
-      };
-
-      xhr.send(JSON.stringify(payload));
-    } catch (err) {
-      resolve({ success: false, error: String(err) });
-    }
-  });
+function getActiveZoteroPane(): any {
+  if (typeof Zotero.getActiveZoteroPane === "function") {
+    return Zotero.getActiveZoteroPane();
+  }
+  const win = Zotero.getMainWindow();
+  return win ? (win as any).ZoteroPane : null;
 }
 
 export function registerItemMenu(ztoolkit: ZoteroToolkit) {
@@ -61,7 +26,6 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     tag: "menu",
     id: `${addon.data.config.addonRef}-itemmenu-obsidian-submenu`,
     label: "Obsidian",
-
     icon: menuIcon,
 
     children: [
@@ -73,14 +37,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
         commandListener: () => {
           (async () => {
             try {
-              let pane = undefined;
-              if (typeof Zotero.getActiveZoteroPane === "function") {
-                pane = Zotero.getActiveZoteroPane();
-              }
-              if (!pane) {
-                const win = Zotero.getMainWindow();
-                pane = win ? (win as any).ZoteroPane : null;
-              }
+              const pane = getActiveZoteroPane();
               if (!pane) throw new Error("Could not find ZoteroPane");
 
               const items = pane
@@ -88,8 +45,20 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                 .filter((item: any) => item.isRegularItem());
               if (!items.length) return;
 
-              const Services = (globalThis as any).Services;
               const win = Zotero.getMainWindow();
+              const Services = (globalThis as any).Services;
+
+              const conn = await ensureObsidianConnection({
+                progressMessage: "Launching Obsidian for literature note...",
+              });
+              if (!conn.ready) {
+                Zotero.alert(
+                  win as any,
+                  "Connection Error",
+                  conn.error || "Connection to Obsidian failed.",
+                );
+                return;
+              }
 
               for (const item of items) {
                 const payload = await getItemPayload(item);
@@ -101,7 +70,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
 
                 if (json.success) {
                   const tagName = String(
-                    (Zotero as any).Prefs.get(
+                    Zotero.Prefs.get(
                       addon.data.config.prefsPrefix + ".obsidianTagName",
                       true,
                     ) || "obsLitNote",
@@ -137,17 +106,14 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                         force: true,
                       });
                       if (json && !json.success) {
-                        let title = "Obsidian Plugin Error";
-                        if (
-                          json.error &&
-                          json.error.includes("Connection to Obsidian failed")
-                        ) {
-                          title = "Connection Error";
-                        }
-                        Zotero.alert(win, title, json.error || "Unknown error");
+                        Zotero.alert(
+                          win,
+                          "Obsidian Plugin Error",
+                          json.error || "Unknown error",
+                        );
                       } else if (json && json.success) {
                         const tagName = String(
-                          (Zotero as any).Prefs.get(
+                          Zotero.Prefs.get(
                             addon.data.config.prefsPrefix + ".obsidianTagName",
                             true,
                           ) || "obsLitNote",
@@ -166,16 +132,9 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                     );
                   }
                 } else {
-                  let title = "Obsidian Plugin Error";
-                  if (
-                    json.error &&
-                    json.error.includes("Connection to Obsidian failed")
-                  ) {
-                    title = "Connection Error";
-                  }
                   Zotero.alert(
                     win as any,
-                    title,
+                    "Obsidian Plugin Error",
                     json.error || "Unknown error",
                   );
                 }
@@ -196,13 +155,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
         commandListener: () => {
           (async () => {
             try {
-              let pane = undefined;
-              if (typeof Zotero.getActiveZoteroPane === "function")
-                pane = Zotero.getActiveZoteroPane();
-              if (!pane) {
-                const win = Zotero.getMainWindow();
-                pane = win ? (win as any).ZoteroPane : null;
-              }
+              const pane = getActiveZoteroPane();
               if (!pane) throw new Error("Could not find ZoteroPane");
 
               const items = pane
@@ -213,6 +166,18 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               const win = Zotero.getMainWindow();
               const payload = await getItemPayload(items[0]);
               if (payload.citekey) {
+                const conn = await ensureObsidianConnection({
+                  progressMessage: "Launching Obsidian to open note...",
+                });
+                if (!conn.ready) {
+                  Zotero.alert(
+                    win as any,
+                    "Connection Error",
+                    conn.error || "Connection to Obsidian failed.",
+                  );
+                  return;
+                }
+
                 const json = await postToObsidian({
                   action: "open",
                   citekey: payload.citekey,
@@ -225,16 +190,9 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                       `The note for '${payload.citekey}' does not exist in the Obsidian vault.`,
                     );
                   } else {
-                    let title = "Obsidian Plugin Error";
-                    if (
-                      json.error &&
-                      json.error.includes("Connection to Obsidian failed")
-                    ) {
-                      title = "Connection Error";
-                    }
                     Zotero.alert(
                       win as any,
-                      title,
+                      "Obsidian Plugin Error",
                       json.error || "Unknown error",
                     );
                   }
@@ -262,14 +220,9 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
 
         commandListener: () => {
           (async () => {
-            const win = (Zotero as any).getMainWindow();
+            const win = Zotero.getMainWindow();
             try {
-              let pane = undefined;
-              if (typeof Zotero.getActiveZoteroPane === "function")
-                pane = Zotero.getActiveZoteroPane();
-              if (!pane) {
-                pane = win ? (win as any).ZoteroPane : null;
-              }
+              const pane = getActiveZoteroPane();
               if (!pane) throw new Error("Could not find ZoteroPane");
 
               const items = pane
@@ -279,7 +232,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
 
               await regenBibtexKey(items);
             } catch (e) {
-              (Zotero as any).warn("Menu Error: " + String(e));
+              Zotero.warn("Menu Error: " + String(e));
               const Services = (globalThis as any).Services;
               if (win && Services && Services.prompt)
                 Services.prompt.alert(win, "Error", String(e));
@@ -294,11 +247,11 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
 
         commandListener: () => {
           (async () => {
-            const win = (Zotero as any).getMainWindow();
+            const win = Zotero.getMainWindow();
             try {
               await syncObsidianTags(addon, true);
             } catch (e) {
-              (Zotero as any).warn("Menu Error: " + String(e));
+              Zotero.warn("Menu Error: " + String(e));
               const Services = (globalThis as any).Services;
               if (win && Services && Services.prompt)
                 Services.prompt.alert(win, "Error", String(e));
@@ -315,27 +268,14 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     id: `${addon.data.config.addonRef}-itemmenu-toggle-left-pane`,
     label: "Toggle Left Pane",
     isHidden: () => {
-      const show = (Zotero as any).Prefs.get(
+      const show = Zotero.Prefs.get(
         addon.data.config.prefsPrefix + ".showPaneToggles",
         true,
       );
       return show === false || show === "false";
     },
     commandListener: () => {
-      const win = Zotero.getMainWindow();
-      if (!win) return;
-      const doc = win.document;
-      const leftPane = doc.getElementById("zotero-collections-pane");
-      if (leftPane) {
-        if (leftPane.hasAttribute("hidden")) {
-          leftPane.removeAttribute("hidden");
-          leftPane.removeAttribute("collapsed");
-        } else if (leftPane.hasAttribute("collapsed")) {
-          leftPane.removeAttribute("collapsed");
-        } else {
-          leftPane.setAttribute("hidden", "true");
-        }
-      }
+      toggleLeftPane();
     },
   });
 
@@ -345,27 +285,14 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
     id: `${addon.data.config.addonRef}-itemmenu-toggle-right-pane`,
     label: "Toggle Right Pane",
     isHidden: () => {
-      const show = (Zotero as any).Prefs.get(
+      const show = Zotero.Prefs.get(
         addon.data.config.prefsPrefix + ".showPaneToggles",
         true,
       );
       return show === false || show === "false";
     },
     commandListener: () => {
-      const win = Zotero.getMainWindow();
-      if (!win) return;
-      const doc = win.document;
-      const rightPane = doc.getElementById("zotero-item-pane");
-      if (rightPane) {
-        if (rightPane.hasAttribute("hidden")) {
-          rightPane.removeAttribute("hidden");
-          rightPane.removeAttribute("collapsed");
-        } else if (rightPane.hasAttribute("collapsed")) {
-          rightPane.removeAttribute("collapsed");
-        } else {
-          rightPane.setAttribute("hidden", "true");
-        }
-      }
+      toggleRightPane();
     },
   });
 }

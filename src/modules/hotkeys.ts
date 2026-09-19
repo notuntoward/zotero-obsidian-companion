@@ -2,6 +2,7 @@ import Addon from "../addon";
 import { KeyModifier } from "zotero-plugin-toolkit";
 import { syncObsidianTags } from "./obsidianTagSync";
 import { regenBibtexKey } from "./regenBibtex";
+import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
 
 export function registerHotkeys() {
   addon.data.ztoolkit.Keyboard.register(async (event, options) => {
@@ -68,37 +69,11 @@ async function handleSyncTags() {
 }
 
 async function handleToggleLeftPane() {
-  const win = (Zotero as any).getMainWindow();
-  if (!win) return;
-  const doc = win.document;
-  const leftPane = doc.getElementById("zotero-collections-pane");
-  if (leftPane) {
-    if (leftPane.hasAttribute("hidden")) {
-      leftPane.removeAttribute("hidden");
-      leftPane.removeAttribute("collapsed");
-    } else if (leftPane.hasAttribute("collapsed")) {
-      leftPane.removeAttribute("collapsed");
-    } else {
-      leftPane.setAttribute("hidden", "true");
-    }
-  }
+  toggleLeftPane();
 }
 
 async function handleToggleRightPane() {
-  const win = (Zotero as any).getMainWindow();
-  if (!win) return;
-  const doc = win.document;
-  const rightPane = doc.getElementById("zotero-item-pane");
-  if (rightPane) {
-    if (rightPane.hasAttribute("hidden")) {
-      rightPane.removeAttribute("hidden");
-      rightPane.removeAttribute("collapsed");
-    } else if (rightPane.hasAttribute("collapsed")) {
-      rightPane.removeAttribute("collapsed");
-    } else {
-      rightPane.setAttribute("hidden", "true");
-    }
-  }
+  toggleRightPane();
 }
 
 async function handleRegenBibtexKey() {
