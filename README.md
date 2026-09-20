@@ -1,5 +1,10 @@
 # Zotero Obsidian Companion
 
+[![Build](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/build.yml/badge.svg)](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/build.yml)
+[![CodeQL](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/codeql.yml/badge.svg)](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/scorecard.yml/badge.svg)](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/scorecard.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/notuntoward/zotero-obsidian-companion/badge)](https://securityscorecards.dev/viewer/?uri=github.com/notuntoward/zotero-obsidian-companion)
+
 Zotero 7/8/9 plugin that pairs with the [Perplexity Saver](https://github.com/notuntoward/obsidian-perplexity-saver) Obsidian plugin.
 
 It allows you to create beautifully formatted literature notes directly from Zotero items into your Obsidian vault, and automatically syncs tag indicators (e.g. `#obsLitNote`) between Zotero items and your existing Obsidian literature notes.
