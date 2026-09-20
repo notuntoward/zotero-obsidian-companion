@@ -18,6 +18,18 @@ function getActiveZoteroPane(): any {
   return win ? (win as any).ZoteroPane : null;
 }
 
+function showAlert(win: any, title: string, message: string): void {
+  const targetWin = win || Zotero.getMainWindow();
+  if (targetWin && typeof targetWin.focus === "function") {
+    try {
+      targetWin.focus();
+    } catch {
+      /* ignore */
+    }
+  }
+  Zotero.alert(targetWin as any, title, message);
+}
+
 export function registerItemMenu(ztoolkit: ZoteroToolkit) {
   const menuIcon = `chrome://${addon.data.config.addonRef}/content/icons/favicon.svg`;
 
@@ -52,11 +64,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                 progressMessage: "Launching Obsidian for literature note...",
               });
               if (!conn.ready) {
-                Zotero.alert(
-                  win as any,
-                  "Connection Error",
-                  conn.error || "Connection to Obsidian failed.",
-                );
+                // Connection failure is already shown non-intrusively in ProgressWindow affixed to Zotero
                 return;
               }
 
@@ -79,6 +87,13 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                   await item.saveTx();
                 } else if (json.error === "exists") {
                   if (Services && Services.prompt) {
+                    if (win && typeof win.focus === "function") {
+                      try {
+                        win.focus();
+                      } catch {
+                        /* ignore */
+                      }
+                    }
                     const flags =
                       Services.prompt.BUTTON_TITLE_IS_STRING *
                         Services.prompt.BUTTON_POS_0 +
@@ -106,7 +121,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                         force: true,
                       });
                       if (json && !json.success) {
-                        Zotero.alert(
+                        showAlert(
                           win,
                           "Obsidian Plugin Error",
                           json.error || "Unknown error",
@@ -125,15 +140,15 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                       break;
                     }
                   } else {
-                    Zotero.alert(
-                      win as any,
+                    showAlert(
+                      win,
                       "File Exists",
                       `The note for '${payload.citekey}' already exists.`,
                     );
                   }
                 } else {
-                  Zotero.alert(
-                    win as any,
+                  showAlert(
+                    win,
                     "Obsidian Plugin Error",
                     json.error || "Unknown error",
                   );
@@ -142,7 +157,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
             } catch (err) {
               ztoolkit.log(err as any);
               const win = Zotero.getMainWindow();
-              if (win) Zotero.alert(win as any, "Error", String(err));
+              showAlert(win, "Error", String(err));
             }
           })();
         },
@@ -170,11 +185,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                   progressMessage: "Launching Obsidian to open note...",
                 });
                 if (!conn.ready) {
-                  Zotero.alert(
-                    win as any,
-                    "Connection Error",
-                    conn.error || "Connection to Obsidian failed.",
-                  );
+                  // Connection failure is already shown non-intrusively in ProgressWindow affixed to Zotero
                   return;
                 }
 
@@ -184,31 +195,26 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
                 });
                 if (json && !json.success) {
                   if (json.error && json.error.includes("not found")) {
-                    Zotero.alert(
-                      win as any,
+                    showAlert(
+                      win,
                       "Note Missing",
                       `The note for '${payload.citekey}' does not exist in the Obsidian vault.`,
                     );
                   } else {
-                    Zotero.alert(
-                      win as any,
+                    showAlert(
+                      win,
                       "Obsidian Plugin Error",
                       json.error || "Unknown error",
                     );
                   }
                 }
               } else {
-                if (win)
-                  Zotero.alert(
-                    win as any,
-                    "Error",
-                    "No citekey found for item",
-                  );
+                showAlert(win, "Error", "No citekey found for item");
               }
             } catch (err) {
               ztoolkit.log(err as any);
               const win = Zotero.getMainWindow();
-              if (win) Zotero.alert(win as any, "Error", String(err));
+              showAlert(win, "Error", String(err));
             }
           })();
         },
@@ -233,9 +239,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               await regenBibtexKey(items);
             } catch (e) {
               Zotero.warn("Menu Error: " + String(e));
-              const Services = (globalThis as any).Services;
-              if (win && Services && Services.prompt)
-                Services.prompt.alert(win, "Error", String(e));
+              showAlert(win, "Error", String(e));
             }
           })();
         },
@@ -252,9 +256,7 @@ export function registerItemMenu(ztoolkit: ZoteroToolkit) {
               await syncObsidianTags(addon, true);
             } catch (e) {
               Zotero.warn("Menu Error: " + String(e));
-              const Services = (globalThis as any).Services;
-              if (win && Services && Services.prompt)
-                Services.prompt.alert(win, "Error", String(e));
+              showAlert(win, "Error", String(e));
             }
           })();
         },

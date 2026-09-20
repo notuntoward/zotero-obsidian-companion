@@ -19,14 +19,7 @@ export async function syncObsidianTags(
         progressMessage: "Launching Obsidian to sync tags...",
       });
       if (!conn.ready) {
-        const win = Zotero.getMainWindow();
-        if (win) {
-          Zotero.alert(
-            win,
-            "Connection Error",
-            conn.error || "Connection to Obsidian failed.",
-          );
-        }
+        // Connection failure is already shown non-intrusively in ProgressWindow affixed to Zotero
         return;
       }
     } else {
@@ -154,6 +147,13 @@ export async function syncObsidianTags(
     if (isManual) {
       const win = Zotero.getMainWindow();
       if (win) {
+        if (typeof win.focus === "function") {
+          try {
+            win.focus();
+          } catch {
+            /* ignore */
+          }
+        }
         Zotero.alert(win, "Sync Error", String(e));
       }
     }

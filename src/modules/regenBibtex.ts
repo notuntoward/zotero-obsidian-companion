@@ -2,6 +2,13 @@ export async function regenBibtexKey(items: any[]) {
   if (!(Zotero as any).BetterBibTeX) {
     const win = (Zotero as any).getMainWindow();
     if (win) {
+      if (typeof win.focus === "function") {
+        try {
+          win.focus();
+        } catch {
+          /* ignore */
+        }
+      }
       win.alert("Better BibTeX is not installed. Cannot regenerate keys.");
     }
     return;
@@ -28,6 +35,13 @@ export async function regenBibtexKey(items: any[]) {
 
     let finalKey = "";
     if (win && win.prompt) {
+      if (typeof win.focus === "function") {
+        try {
+          win.focus();
+        } catch {
+          /* ignore */
+        }
+      }
       const response = win.prompt(
         "Edit Citation Key\n\n" + item.getField("title") + "\n\nProposed key:",
         proposedKey,
