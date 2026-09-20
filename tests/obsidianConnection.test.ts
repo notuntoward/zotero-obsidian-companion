@@ -60,6 +60,10 @@ describe("obsidianConnection", () => {
 
     mockAddon = {
       data: {
+        config: {
+          addonRef: "zoteroobsidian",
+          addonName: "Obsidian",
+        },
         ztoolkit: {
           ProgressWindow,
         },

@@ -2,7 +2,11 @@
  * Centralized Obsidian connection, process detection, auto-launch, and communication service.
  */
 
-import { applyCompactProgressStyle } from "../utils/progressNotice";
+import {
+  applyCompactProgressStyle,
+  pluginIconUrl,
+  resizeCompactProgressWindow,
+} from "../utils/progressNotice";
 import { focusMainWindow } from "../utils/alert";
 
 declare const Zotero: any;
@@ -257,7 +261,11 @@ function startNotice(message: string): void {
     const notice = new ProgressWindow("Obsidian", {
       closeOnClick: true,
     });
-    notice.createLine({ text: message, progress: 0 });
+    notice.createLine({
+      text: message,
+      icon: pluginIconUrl(),
+      progress: 0,
+    });
     // -1 keeps the window open until finishNotice() dismisses it.
     notice.show(-1);
     applyCompactProgressStyle(notice.lines?.[0]);
@@ -276,6 +284,9 @@ function updateNotice(message: string, progress?: number): void {
         ? { text: message, progress }
         : { text: message },
     );
+    // The message can grow (e.g. once Obsidian's process is detected), so
+    // re-measure the window instead of leaving it sized for the old text.
+    resizeCompactProgressWindow(currentNotice.lines?.[0]);
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] updateNotice error: ${e}`);
   }
@@ -324,6 +335,9 @@ function finishNotice(
         }
       }, autoCloseMs);
     }
+    // setText()/addDescription() do not always resize the window themselves;
+    // re-measure so the final message is never clipped.
+    resizeCompactProgressWindow(notice.lines?.[0]);
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] finishNotice error: ${e}`);
   }

@@ -56,9 +56,17 @@ alert.
   `content/icons/success.svg` and `cross.svg` via `setIconURI`. Do not point
   icons back at Zotero PNG paths.
 - Progress windows hard-code `min-width: 300px` and a 250px item label, which
-  leaves dead space around short notices. `src/utils/progressNotice.ts` injects
-  a compact style into the progress-window document; use `showNotice()` for
-  simple notices instead of building windows ad hoc.
+  leaves dead space around short notices (and wraps/clips longer ones).
+  `src/utils/progressNotice.ts` injects a compact style into the progress
+  window document; use `showNotice()` for simple notices instead of building
+  windows ad hoc. The progress window is a XUL/XHTML hybrid document whose
+  _default_ (unprefixed) namespace is XUL, not HTML: a plain
+  `document.createElement("style")` there silently creates a non-stylesheet
+  element that Gecko's style engine ignores. Any injected `<style>` MUST use
+  `document.createElementNS("http://www.w3.org/1999/xhtml", "style")`. Also
+  call `sizeToContent()` again after changing a notice's text later
+  (`resizeCompactProgressWindow()`) — `setText()` does not resize the window
+  on its own, only `addLines()`/`addDescription()` do.
 - `Zotero.Promise` is a shim in Zotero 10: only `delay`, `defer`, and `method`
   are guaranteed. Do not use Bluebird-only methods.
 - Guard long-running async work against shutdown with `addon.data.alive`

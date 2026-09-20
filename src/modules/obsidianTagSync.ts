@@ -4,7 +4,11 @@ import {
   ensureObsidianConnection,
   isObsidianServerReady,
 } from "./obsidianConnection";
-import { applyCompactProgressStyle } from "../utils/progressNotice";
+import {
+  applyCompactProgressStyle,
+  pluginIconUrl,
+  resizeCompactProgressWindow,
+} from "../utils/progressNotice";
 import { showAlert } from "../utils/alert";
 
 declare const Zotero: any;
@@ -96,6 +100,7 @@ export async function syncObsidianTags(
       });
       pw.createLine({
         text: "Checking tags...",
+        icon: pluginIconUrl(),
         progress: 0,
       }).show(-1);
       applyCompactProgressStyle(pw.lines?.[0]);
@@ -128,6 +133,7 @@ export async function syncObsidianTags(
           text: `Checking items: ${i} of ${total}`,
           progress: (i / total) * 100,
         });
+        resizeCompactProgressWindow(pw.lines?.[0]);
       }
     }
 
@@ -141,6 +147,7 @@ export async function syncObsidianTags(
         type: "success",
         progress: 100,
       }).show(8000);
+      resizeCompactProgressWindow(pw.lines?.[0]);
     } else if (added > 0 || removed > 0) {
       // Show a disappearing notification automatically if things changed
       const notice: any = new addon.data.ztoolkit.ProgressWindow(
