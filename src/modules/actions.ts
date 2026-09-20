@@ -11,6 +11,20 @@ import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
 declare const Zotero: any;
 declare const addon: any;
 
+type LitNoteStatus =
+  | "created"
+  | "overwritten"
+  | "opened"
+  | "skipped"
+  | "missing"
+  | "error";
+
+interface LitNoteItemResult {
+  citekey: string;
+  status: LitNoteStatus;
+  error?: string;
+}
+
 function getMainWindow(): any {
   return typeof Zotero.getMainWindow === "function"
     ? Zotero.getMainWindow()
@@ -64,39 +78,82 @@ export function toggleRightPaneAction(): void {
   toggleRightPane();
 }
 
-function confirmOverwrite(win: any, citekey: string): number | null {
-  const Services = (globalThis as any).Services;
-  if (!Services?.prompt) return null;
-  if (win && typeof win.focus === "function") {
+/**
+ * Build a payload for every selected item. Returns null (after alerting) if any
+ * payload cannot be built, so a batch is never partially created.
+ */
+async function buildPayloads(
+  win: any,
+  targets: any[],
+): Promise<{ item: any; payload: any }[] | null> {
+  const pairs: { item: any; payload: any }[] = [];
+  for (const item of targets) {
     try {
-      win.focus();
-    } catch {
-      /* ignore */
+      pairs.push({ item, payload: await getItemPayload(item) });
+    } catch (e) {
+      showAlert(win, "Error", String(e));
+      return null;
     }
   }
-  const flags =
-    Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0 +
-    Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_1 +
-    Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_2;
-  return Services.prompt.confirmEx(
-    win,
-    "Overwrite Note?",
-    `The note for '${citekey}' already exists in Obsidian. Do you want to overwrite it?`,
-    flags,
-    "Overwrite",
-    "Skip",
-    "Cancel",
-    null,
-    {},
-  );
+  return pairs;
 }
 
+async function tagCreatedNotes(
+  pairs: { item: any; payload: any }[],
+  results: LitNoteItemResult[],
+): Promise<void> {
+  const itemByCitekey = new Map<string, any>();
+  for (const { item, payload } of pairs) {
+    if (payload.citekey) itemByCitekey.set(payload.citekey, item);
+  }
+  for (const result of results) {
+    if (
+      result.status === "created" ||
+      result.status === "overwritten" ||
+      result.status === "opened"
+    ) {
+      const item = itemByCitekey.get(result.citekey);
+      if (!item) continue;
+      try {
+        await tagItem(item);
+      } catch (e) {
+        Zotero.logError(e as any);
+      }
+    }
+  }
+}
+
+/** Extract error results for a single alert instead of one dialog per note. */
+function collectErrors(json: any): string[] {
+  const results = readResults(json);
+  const errors = results
+    .filter((r) => r.status === "error")
+    .map((r) => `${r.citekey || "(unknown)"}: ${r.error || "Unknown error"}`);
+  // Older Obsidian plugin builds reply with { success, error } and no results.
+  if (!results.length && json && json.success === false && json.error) {
+    errors.push(String(json.error));
+  }
+  return errors;
+}
+
+function readResults(json: any): LitNoteItemResult[] {
+  return Array.isArray(json?.results) ? json.results : [];
+}
+
+/**
+ * Create (or overwrite) lit notes for the selected items. Any decision about an
+ * existing note is made in Obsidian's modal, so no Zotero dialog can be hidden
+ * behind the Obsidian window.
+ */
 export async function createLitNotes(items: any[]): Promise<void> {
   const targets = regularItems(items);
   if (!targets.length) return;
   const win = getMainWindow();
 
   try {
+    const pairs = await buildPayloads(win, targets);
+    if (!pairs) return;
+
     const conn = await ensureObsidianConnection({
       progressMessage: "Launching Obsidian for literature note...",
     });
@@ -106,45 +163,16 @@ export async function createLitNotes(items: any[]): Promise<void> {
       return;
     }
 
-    for (const item of targets) {
-      const payload = await getItemPayload(item);
-      let json = await postToObsidian({ action: "create", data: [payload] });
-      if (!json) continue;
+    const json = await postToObsidian({
+      action: "create",
+      data: pairs.map((p) => p.payload),
+    });
+    const results = readResults(json);
+    await tagCreatedNotes(pairs, results);
 
-      if (json.success) {
-        await tagItem(item);
-        continue;
-      }
-
-      if (json.error === "exists") {
-        const result = confirmOverwrite(win, payload.citekey);
-        if (result === null) {
-          showAlert(
-            win,
-            "File Exists",
-            `The note for '${payload.citekey}' already exists.`,
-          );
-        } else if (result === 0) {
-          json = await postToObsidian({
-            action: "create",
-            data: [payload],
-            force: true,
-          });
-          if (json && json.success) {
-            await tagItem(item);
-          } else {
-            showAlert(
-              win,
-              "Obsidian Plugin Error",
-              json?.error || "Unknown error",
-            );
-          }
-        } else if (result === 2) {
-          break;
-        }
-      } else {
-        showAlert(win, "Obsidian Plugin Error", json.error || "Unknown error");
-      }
+    const errors = collectErrors(json);
+    if (errors.length) {
+      showAlert(win, "Obsidian Plugin Error", errors.join("\n"));
     }
   } catch (err) {
     Zotero.logError(err as any);
@@ -152,17 +180,18 @@ export async function createLitNotes(items: any[]): Promise<void> {
   }
 }
 
+/**
+ * Open (or, if missing, offer to create) lit notes for the selected items.
+ * Missing-note decisions also happen in Obsidian.
+ */
 export async function openLitNote(items: any[]): Promise<void> {
   const targets = regularItems(items);
   if (!targets.length) return;
   const win = getMainWindow();
 
   try {
-    const payload = await getItemPayload(targets[0]);
-    if (!payload.citekey) {
-      showAlert(win, "Error", "No citekey found for item");
-      return;
-    }
+    const pairs = await buildPayloads(win, targets);
+    if (!pairs) return;
 
     const conn = await ensureObsidianConnection({
       progressMessage: "Launching Obsidian to open note...",
@@ -175,18 +204,12 @@ export async function openLitNote(items: any[]): Promise<void> {
 
     const json = await postToObsidian({
       action: "open",
-      citekey: payload.citekey,
+      data: pairs.map((p) => p.payload),
     });
-    if (json && !json.success) {
-      if (json.error && json.error.includes("not found")) {
-        showAlert(
-          win,
-          "Note Missing",
-          `The note for '${payload.citekey}' does not exist in the Obsidian vault.`,
-        );
-      } else {
-        showAlert(win, "Obsidian Plugin Error", json.error || "Unknown error");
-      }
+
+    const errors = collectErrors(json);
+    if (errors.length) {
+      showAlert(win, "Obsidian Plugin Error", errors.join("\n"));
     }
   } catch (err) {
     Zotero.logError(err as any);

@@ -532,7 +532,9 @@ export async function postToObsidian(payload: any): Promise<any> {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        timeout: 10000,
+        // Obsidian may hold this request open while the user answers a modal
+        // (e.g. note already exists), so allow well beyond the old 10s.
+        timeout: 120000,
       },
     );
 
