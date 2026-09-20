@@ -7,6 +7,19 @@ import {
 
 declare const Zotero: any;
 
+/**
+ * Resolve the configured Obsidian tag name. Shared by note creation and
+ * has-note tag syncing so both always agree on the tag.
+ */
+export function getObsidianTagName(addon: Addon): string {
+  return String(
+    Zotero.Prefs.get(
+      addon.data.config.prefsPrefix + ".obsidianTagName",
+      true,
+    ) || "obsLitNote",
+  );
+}
+
 export async function syncObsidianTags(
   addon: Addon,
   isManual: boolean = false,
@@ -52,12 +65,7 @@ export async function syncObsidianTags(
     const obsCitekeys = new Set(data.citekeys);
 
     // Get setting
-    const tagName = String(
-      Zotero.Prefs.get(
-        addon.data.config.prefsPrefix + ".obsidianTagName",
-        true,
-      ) || "obsLitNote",
-    );
+    const tagName = getObsidianTagName(addon);
 
     // Set tag color globally for the user library
     try {

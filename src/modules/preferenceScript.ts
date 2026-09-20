@@ -1,13 +1,6 @@
-import Addon from "../addon";
 import { KeyModifier } from "zotero-plugin-toolkit";
 
 export function registerPrefsScripts(_window: Window): void {
-  addon.data.prefs = {
-    window: _window,
-    columns: [],
-    rows: [],
-  };
-
   const doc = _window.document;
 
   const prefs = [

@@ -7,3 +7,4 @@ pref("hotkeySyncTags", "");
 pref("hotkeyToggleLeftPane", "");
 pref("hotkeyToggleRightPane", "");
 pref("hotkeyOpenLitNote", "");
+pref("hotkeyRegenBibtexKey", "");

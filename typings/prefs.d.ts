@@ -14,6 +14,7 @@ declare namespace _ZoteroTypes {
       "hotkeyToggleLeftPane": string;
       "hotkeyToggleRightPane": string;
       "hotkeyOpenLitNote": string;
+      "hotkeyRegenBibtexKey": string;
     };
   }
 }

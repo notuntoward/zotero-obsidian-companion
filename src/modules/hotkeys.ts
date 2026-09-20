@@ -1,95 +1,85 @@
-import Addon from "../addon";
 import { KeyModifier } from "zotero-plugin-toolkit";
-import { syncObsidianTags } from "./obsidianTagSync";
-import { regenBibtexKey } from "./regenBibtex";
-import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
+import {
+  createLitNotes,
+  openLitNote,
+  regenerateCitationKeys,
+  syncHasNoteIndicators,
+  toggleLeftPaneAction,
+  toggleRightPaneAction,
+  getSelectedItems,
+} from "./actions";
+
+declare const Zotero: any;
+declare const addon: any;
 
 export function registerHotkeys() {
-  addon.data.ztoolkit.Keyboard.register(async (event, options) => {
-    if (options.type !== "keydown") return;
+  addon.data.ztoolkit.Keyboard.register(
+    async (event: KeyboardEvent, options: { type: string }) => {
+      if (options.type !== "keydown") return;
 
-    const target = event.target as HTMLElement;
-    if (
-      target &&
-      (target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable)
-    ) {
-      return;
-    }
+      const target = event.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
 
-    const shortcut = new KeyModifier(event);
+      const shortcut = new KeyModifier(event);
 
-    // Ignore lone modifiers
-    if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
+      // Ignore lone modifiers
+      if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
 
-    const prefs = [
-      { key: "hotkeyCreateLitNote", action: handleCreateLitNote },
-      { key: "hotkeyOpenLitNote", action: handleOpenLitNote },
-      { key: "hotkeySyncTags", action: handleSyncTags },
-      { key: "hotkeyToggleLeftPane", action: handleToggleLeftPane },
-      { key: "hotkeyToggleRightPane", action: handleToggleRightPane },
-      { key: "hotkeyRegenBibtexKey", action: handleRegenBibtexKey },
-    ];
+      const prefs = [
+        { key: "hotkeyCreateLitNote", action: handleCreateLitNote },
+        { key: "hotkeyOpenLitNote", action: handleOpenLitNote },
+        { key: "hotkeySyncTags", action: handleSyncTags },
+        { key: "hotkeyToggleLeftPane", action: handleToggleLeftPane },
+        { key: "hotkeyToggleRightPane", action: handleToggleRightPane },
+        { key: "hotkeyRegenBibtexKey", action: handleRegenBibtexKey },
+      ];
 
-    for (const pref of prefs) {
-      const savedHotkeyStr = String(
-        (Zotero as any).Prefs.get("zoteroobsidian." + pref.key) || "",
-      );
-      if (savedHotkeyStr) {
-        // Use ztoolkit's robust equality check
-        const savedShortcut = new KeyModifier(savedHotkeyStr);
-        if (savedShortcut.equals(shortcut)) {
-          event.preventDefault();
-          event.stopPropagation();
-          await pref.action();
-          return;
+      for (const pref of prefs) {
+        const savedHotkeyStr = String(
+          (Zotero as any).Prefs.get("zoteroobsidian." + pref.key) || "",
+        );
+        if (savedHotkeyStr) {
+          // Use ztoolkit's robust equality check
+          const savedShortcut = new KeyModifier(savedHotkeyStr);
+          if (savedShortcut.equals(shortcut)) {
+            event.preventDefault();
+            event.stopPropagation();
+            await pref.action();
+            return;
+          }
         }
       }
-    }
-  });
+    },
+  );
 }
 
 async function handleCreateLitNote() {
-  const win = (Zotero as any).getMainWindow();
-  if (!win) return;
-  const items = win.ZoteroPane.getSelectedItems();
-  if (!items || items.length === 0) return;
-  const menuItemId = `${addon.data.config.addonRef}-itemmenu-create-lit-note`;
-  const menuItem = win.document.getElementById(menuItemId);
-  if (menuItem) {
-    menuItem.doCommand();
-  } else {
-    win.ZoteroPane.doCommand("zotero-obsidian-companion-create-lit-note");
-  }
-}
-
-async function handleSyncTags() {
-  await syncObsidianTags(addon, true);
-}
-
-async function handleToggleLeftPane() {
-  toggleLeftPane();
-}
-
-async function handleToggleRightPane() {
-  toggleRightPane();
-}
-
-async function handleRegenBibtexKey() {
-  const win = (Zotero as any).getMainWindow();
-  if (!win) return;
-  const items = win.ZoteroPane.getSelectedItems();
-  if (!items || items.length === 0) return;
-  await regenBibtexKey(items);
+  await createLitNotes(getSelectedItems());
 }
 
 async function handleOpenLitNote() {
-  const win = (Zotero as any).getMainWindow();
-  if (!win) return;
-  const menuItemId = `${addon.data.config.addonRef}-itemmenu-open-lit-note`;
-  const menuItem = win.document.getElementById(menuItemId);
-  if (menuItem) {
-    menuItem.doCommand();
-  }
+  await openLitNote(getSelectedItems());
+}
+
+async function handleSyncTags() {
+  await syncHasNoteIndicators();
+}
+
+async function handleToggleLeftPane() {
+  toggleLeftPaneAction();
+}
+
+async function handleToggleRightPane() {
+  toggleRightPaneAction();
+}
+
+async function handleRegenBibtexKey() {
+  await regenerateCitationKeys(getSelectedItems());
 }

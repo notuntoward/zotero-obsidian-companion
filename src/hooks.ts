@@ -14,7 +14,7 @@ async function onStartup() {
 
   initLocale();
 
-  Zotero.PreferencePanes.register({
+  await Zotero.PreferencePanes.register({
     pluginID: addon.data.config.addonID,
     src: rootURI + "content/preferences.xhtml",
     label: getString("prefs-title"),
@@ -24,6 +24,10 @@ async function onStartup() {
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
   );
+
+  // Registered once for the whole app; Zotero's native menu API handles all
+  // main windows and removes the menu automatically on shutdown.
+  registerItemMenu();
 
   try {
     await syncObsidianTags(addon);
@@ -40,7 +44,6 @@ async function onMainWindowLoad(win: Window): Promise<void> {
     `${addon.data.config.addonRef}-mainWindow.ftl`,
   );
 
-  registerItemMenu(addon.data.ztoolkit);
   registerHotkeys();
 
   new ztoolkit.ProgressWindow(addon.data.config.addonName, {
