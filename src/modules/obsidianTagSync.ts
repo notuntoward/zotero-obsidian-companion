@@ -4,6 +4,8 @@ import {
   ensureObsidianConnection,
   isObsidianServerReady,
 } from "./obsidianConnection";
+import { applyCompactProgressStyle } from "../utils/progressNotice";
+import { showAlert } from "../utils/alert";
 
 declare const Zotero: any;
 
@@ -96,6 +98,7 @@ export async function syncObsidianTags(
         text: "Checking tags...",
         progress: 0,
       }).show(-1);
+      applyCompactProgressStyle(pw.lines?.[0]);
     }
 
     let i = 0;
@@ -140,30 +143,23 @@ export async function syncObsidianTags(
       }).show(8000);
     } else if (added > 0 || removed > 0) {
       // Show a disappearing notification automatically if things changed
-      new addon.data.ztoolkit.ProgressWindow("Obsidian Tag Sync", {
-        closeOnClick: true,
-      })
-        .createLine({
-          text: `${itemsWithNotes} items have notes. (Added: ${added}, Removed: ${removed})`,
-          type: "success",
-          progress: 100,
-        })
-        .show(8000);
+      const notice: any = new addon.data.ztoolkit.ProgressWindow(
+        "Obsidian Tag Sync",
+        {
+          closeOnClick: true,
+        },
+      ).createLine({
+        text: `${itemsWithNotes} items have notes. (Added: ${added}, Removed: ${removed})`,
+        type: "success",
+        progress: 100,
+      });
+      notice.show(8000);
+      applyCompactProgressStyle(notice.lines?.[0]);
     }
   } catch (e) {
     addon.data.ztoolkit.log("Error in syncObsidianTags: " + e);
     if (isManual) {
-      const win = Zotero.getMainWindow();
-      if (win) {
-        if (typeof win.focus === "function") {
-          try {
-            win.focus();
-          } catch {
-            /* ignore */
-          }
-        }
-        Zotero.alert(win, "Sync Error", String(e));
-      }
+      showAlert(Zotero.getMainWindow(), "Sync Error", String(e));
     }
   }
 }

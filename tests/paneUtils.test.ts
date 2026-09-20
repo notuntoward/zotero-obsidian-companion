@@ -86,5 +86,16 @@ describe("paneUtils", () => {
       expect(rightPaneEl.setAttribute).toHaveBeenCalledWith("hidden", "true");
       expect(rightPaneEl.hasAttribute("hidden")).toBe(true);
     });
+
+    it("prefers ZoteroPane.toggleItemPane when the native API is available", () => {
+      const toggleItemPane = vi.fn();
+      mockWin.ZoteroPane = { toggleItemPane };
+
+      toggleRightPane(mockWin);
+
+      expect(toggleItemPane).toHaveBeenCalledTimes(1);
+      expect(rightPaneEl.setAttribute).not.toHaveBeenCalled();
+      expect(rightPaneEl.removeAttribute).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,16 +1,12 @@
+import { focusMainWindow, getMainWindow, showAlert } from "../utils/alert";
+
 export async function regenBibtexKey(items: any[]) {
   if (!(Zotero as any).BetterBibTeX) {
-    const win = (Zotero as any).getMainWindow();
-    if (win) {
-      if (typeof win.focus === "function") {
-        try {
-          win.focus();
-        } catch {
-          /* ignore */
-        }
-      }
-      win.alert("Better BibTeX is not installed. Cannot regenerate keys.");
-    }
+    showAlert(
+      getMainWindow(),
+      "Obsidian",
+      "Better BibTeX is not installed. Cannot regenerate keys.",
+    );
     return;
   }
 
@@ -21,7 +17,8 @@ export async function regenBibtexKey(items: any[]) {
     return;
   }
 
-  const win = (Zotero as any).getMainWindow();
+  const win = getMainWindow();
+  const Services = (globalThis as any).Services;
 
   for (const item of selectedItems) {
     if (!item.isRegularItem()) continue;
@@ -34,22 +31,21 @@ export async function regenBibtexKey(items: any[]) {
       (Zotero as any).BetterBibTeX.KeyManager.propose(item) || "";
 
     let finalKey = "";
-    if (win && win.prompt) {
-      if (typeof win.focus === "function") {
-        try {
-          win.focus();
-        } catch {
-          /* ignore */
-        }
-      }
-      const response = win.prompt(
-        "Edit Citation Key\n\n" + item.getField("title") + "\n\nProposed key:",
-        proposedKey,
+    if (win && Services?.prompt) {
+      focusMainWindow(win);
+      const input = { value: proposedKey };
+      const confirmed = Services.prompt.prompt(
+        win,
+        "Edit Citation Key",
+        `${item.getField("title")}\n\nProposed key:`,
+        input,
+        null,
+        {},
       );
-      if (response === null) {
+      if (!confirmed) {
         break; // user cancelled
       }
-      finalKey = response;
+      finalKey = input.value;
     } else {
       finalKey = proposedKey; // fallback silently if no UI
     }

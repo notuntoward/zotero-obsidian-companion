@@ -2,6 +2,9 @@
  * Centralized Obsidian connection, process detection, auto-launch, and communication service.
  */
 
+import { applyCompactProgressStyle } from "../utils/progressNotice";
+import { focusMainWindow } from "../utils/alert";
+
 declare const Zotero: any;
 declare const addon: any;
 
@@ -225,15 +228,6 @@ function getProgressWindowClass(): any {
   return addon?.data?.ztoolkit?.ProgressWindow ?? null;
 }
 
-function focusZoteroWindow(): void {
-  try {
-    const win = Zotero?.getMainWindow?.();
-    if (win && typeof win.focus === "function") win.focus();
-  } catch {
-    /* ignore */
-  }
-}
-
 /** True once the addon has been shut down or unloaded. */
 function isCancelled(): boolean {
   return addon?.data?.alive === false;
@@ -266,6 +260,7 @@ function startNotice(message: string): void {
     notice.createLine({ text: message, progress: 0 });
     // -1 keeps the window open until finishNotice() dismisses it.
     notice.show(-1);
+    applyCompactProgressStyle(notice.lines?.[0]);
     currentNotice = notice;
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] startNotice error: ${e}`);
@@ -358,6 +353,7 @@ function showTransientNotice(
       }
     }
     notice.show(autoCloseMs);
+    applyCompactProgressStyle(notice.lines?.[0]);
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] showTransientNotice error: ${e}`);
   }
@@ -438,7 +434,7 @@ export function ensureObsidianConnection(
           "Obsidian is running but the 'Perplexity Saver' plugin is not responding on port 27124. Enable it in Obsidian Settings > Community Plugins.",
           FAILURE_NOTICE_MS,
         );
-        focusZoteroWindow();
+        focusMainWindow();
         return { ready: false, error: errMsg };
       }
 
@@ -499,7 +495,7 @@ export function ensureObsidianConnection(
         `The 'Perplexity Saver' plugin did not respond within ${seconds} seconds. Check that it is enabled in your vault's Community Plugins settings.`,
         FAILURE_NOTICE_MS,
       );
-      focusZoteroWindow();
+      focusMainWindow();
       return { ready: false, error: timeoutMsg };
     } catch (e) {
       Zotero.debug(`[zoteroobsidian] ensureObsidianConnection error: ${e}`);

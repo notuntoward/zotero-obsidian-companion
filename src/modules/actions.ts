@@ -7,6 +7,7 @@ import { getObsidianTagName, syncObsidianTags } from "./obsidianTagSync";
 import { regenBibtexKey } from "./regenBibtex";
 import { ensureObsidianConnection, postToObsidian } from "./obsidianConnection";
 import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
+import { getMainWindow, showAlert } from "../utils/alert";
 
 declare const Zotero: any;
 declare const addon: any;
@@ -23,24 +24,6 @@ interface LitNoteItemResult {
   citekey: string;
   status: LitNoteStatus;
   error?: string;
-}
-
-function getMainWindow(): any {
-  return typeof Zotero.getMainWindow === "function"
-    ? Zotero.getMainWindow()
-    : null;
-}
-
-function showAlert(win: any, title: string, message: string): void {
-  const targetWin = win || getMainWindow();
-  if (targetWin && typeof targetWin.focus === "function") {
-    try {
-      targetWin.focus();
-    } catch {
-      /* ignore */
-    }
-  }
-  Zotero.alert(targetWin, title, message);
 }
 
 export function getSelectedItems(): any[] {

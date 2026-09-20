@@ -4,6 +4,7 @@ import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerHotkeys } from "./modules/hotkeys";
+import { showNotice } from "./utils/progressNotice";
 
 async function onStartup() {
   await Promise.all([
@@ -46,16 +47,7 @@ async function onMainWindowLoad(win: Window): Promise<void> {
 
   registerHotkeys();
 
-  new ztoolkit.ProgressWindow(addon.data.config.addonName, {
-    closeOnClick: true,
-    closeTime: 3000,
-  })
-    .createLine({
-      text: getString("startup-finish"),
-      type: "success",
-      progress: 100,
-    })
-    .show();
+  showNotice(getString("startup-finish"));
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
