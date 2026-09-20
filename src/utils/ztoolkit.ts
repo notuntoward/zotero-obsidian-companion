@@ -25,9 +25,20 @@ function initZToolkit(_ztoolkit: ReturnType<typeof createZToolkit>) {
   // _ztoolkit.basicOptions.debug.disableDebugBridgePassword =
   //   __env__ === "development";
   _ztoolkit.basicOptions.api.pluginID = config.addonID;
+  // Zotero 10 dropped skin/tick.png and skin/cross.png and its SVG icons rely
+  // on -moz-context-properties that the toolkit never sets, which left a blank
+  // 16px icon slot. Use the plugin's own self-colored icons instead.
   _ztoolkit.ProgressWindow.setIconURI(
     "default",
-    `chrome://${config.addonRef}/content/icons/favicon.png`,
+    `chrome://${config.addonRef}/content/icons/favicon.svg`,
+  );
+  _ztoolkit.ProgressWindow.setIconURI(
+    "success",
+    `chrome://${config.addonRef}/content/icons/success.svg`,
+  );
+  _ztoolkit.ProgressWindow.setIconURI(
+    "fail",
+    `chrome://${config.addonRef}/content/icons/cross.svg`,
   );
 }
 
