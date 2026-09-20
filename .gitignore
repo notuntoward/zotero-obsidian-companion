@@ -6,8 +6,10 @@ node_modules
 pnpm-lock.yaml
 yarn.lock
 
-# Scaffold
+# Local dev environment and scaffold state (not the plugin build output)
 .env
 .scaffold
+
+# Plugin build output (obsidian.xpi is written here)
 build
 logs
