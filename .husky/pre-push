@@ -1,0 +1,1 @@
+exec sh "${XDG_CONFIG_HOME:-$HOME/.config}/kilo/hooks/pre-push" "$@"
