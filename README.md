@@ -53,6 +53,12 @@ Configure settings in Zotero via **Edit -> Settings -> Obsidian**:
 
 ## Building from Source
 
+The Husky commit-message and push hooks delegate attribution checks to the
+chezmoi-managed hooks under `~/.config/kilo/hooks`. Install them from
+[kilo-dotfiles](https://github.com/notuntoward/kilo-dotfiles) before committing
+or pushing; missing policy files fail closed. The existing lint-staged
+pre-commit hook remains unchanged.
+
 This plugin is built using the [Zotero Plugin Toolkit](https://github.com/windingwind/zotero-plugin-toolkit) framework.
 
 ```bash
