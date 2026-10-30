@@ -13,7 +13,12 @@ declare const Zotero: any;
 declare const addon: any;
 
 type LitNoteStatus =
-  "created" | "overwritten" | "opened" | "skipped" | "missing" | "error";
+  | "created"
+  | "overwritten"
+  | "opened"
+  | "skipped"
+  | "missing"
+  | "error";
 
 interface LitNoteItemResult {
   citekey: string;
@@ -147,6 +152,16 @@ export async function createLitNotes(items: any[]): Promise<void> {
     });
     const results = readResults(json);
     await tagCreatedNotes(pairs, results);
+    if (
+      results.some(
+        (result) =>
+          result.status === "created" ||
+          result.status === "overwritten" ||
+          result.status === "opened",
+      )
+    ) {
+      await syncObsidianTags(addon);
+    }
 
     const errors = collectErrors(json);
     if (errors.length) {
