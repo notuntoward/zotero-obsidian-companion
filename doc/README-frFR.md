@@ -311,7 +311,7 @@ L'extension 'bootstrappé' fonctionne dans un bac à sable, qui n'a pas de varia
 Ce modèle enregistre les variables suivantes avec une portée globale :
 
 ```ts
-(Zotero, ZoteroPane, Zotero_Tabs, window, document, rootURI, ztoolkit, addon);
+Zotero, ZoteroPane, Zotero_Tabs, window, document, rootURI, ztoolkit, addon;
 ```
 
 ### Création d'une API pour les éléments de l'extension
