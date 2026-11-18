@@ -13,3 +13,5 @@ yarn.lock
 # Plugin build output (obsidian.xpi is written here)
 build
 logs
+# Generated scaffold typings
+typings/i10n.d.ts
