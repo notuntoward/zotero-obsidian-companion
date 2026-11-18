@@ -104,6 +104,20 @@ describe("actions", () => {
       expect(mocks.showAlert).not.toHaveBeenCalled();
     });
 
+    it("reconciles has-note indicators across the library after creating a note", async () => {
+      mocks.postToObsidian.mockResolvedValue({
+        success: true,
+        results: [{ citekey: "a", status: "created" }],
+      });
+
+      await createLitNotes([mkItem("a")]);
+
+      expect(mocks.syncObsidianTags).toHaveBeenCalledOnce();
+      expect(mocks.syncObsidianTags).toHaveBeenCalledWith(
+        (globalThis as any).addon,
+      );
+    });
+
     it("reports error results in a single alert", async () => {
       mocks.postToObsidian.mockResolvedValue({
         success: false,
@@ -116,6 +130,7 @@ describe("actions", () => {
 
       expect(mocks.showAlert).toHaveBeenCalledTimes(1);
       expect(mocks.showAlert.mock.calls[0][2]).toContain("vault write failed");
+      expect(mocks.syncObsidianTags).not.toHaveBeenCalled();
     });
 
     it("surfaces a legacy { success:false, error } reply", async () => {
