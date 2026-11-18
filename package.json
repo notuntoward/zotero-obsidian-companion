@@ -22,13 +22,16 @@
   "license": "MIT",
   "scripts": {
     "start": "zotero-plugin serve",
-    "build": "zotero-plugin build && tsc --noEmit",
+    "build": "npm run check && npm test && npm run bundle",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "zotero-plugin release",
     "test": "vitest run",
     "update-deps": "npm update --save",
-    "prepare": "husky"
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint:check && npm run typecheck",
+    "bundle": "zotero-plugin build"
   },
   "dependencies": {
     "zotero-plugin-toolkit": "^5.2.0"
