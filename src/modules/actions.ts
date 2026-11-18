@@ -13,12 +13,7 @@ declare const Zotero: any;
 declare const addon: any;
 
 type LitNoteStatus =
-  | "created"
-  | "overwritten"
-  | "opened"
-  | "skipped"
-  | "missing"
-  | "error";
+  "created" | "overwritten" | "opened" | "skipped" | "missing" | "error";
 
 interface LitNoteItemResult {
   citekey: string;
