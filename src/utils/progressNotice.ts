@@ -111,10 +111,10 @@ export function showNotice(
     headline?: string;
     timeoutMs?: number;
   } = {},
-): void {
+): boolean {
   try {
     const ProgressWindow = addon?.data?.ztoolkit?.ProgressWindow;
-    if (!ProgressWindow) return;
+    if (!ProgressWindow) return false;
     const pw = new ProgressWindow(
       options.headline ?? addon.data.config.addonName,
       {
@@ -128,7 +128,9 @@ export function showNotice(
     }).show(-1);
     applyCompactProgressStyle(pw.lines?.[0]);
     pw.startCloseTimer(options.timeoutMs ?? 3000);
+    return true;
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] showNotice error: ${e}`);
+    return false;
   }
 }

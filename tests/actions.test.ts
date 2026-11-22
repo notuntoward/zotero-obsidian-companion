@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   showAlert: vi.fn(),
+  showNotice: vi.fn(),
   getMainWindow: vi.fn(() => ({ focus: vi.fn() })),
   postToObsidian: vi.fn(),
   ensureObsidianConnection: vi.fn(),
@@ -16,6 +17,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/utils/alert", () => ({
   getMainWindow: mocks.getMainWindow,
   showAlert: mocks.showAlert,
+}));
+vi.mock("../src/utils/progressNotice", () => ({
+  showNotice: mocks.showNotice,
 }));
 vi.mock("../src/modules/obsidianConnection", () => ({
   ensureObsidianConnection: mocks.ensureObsidianConnection,
@@ -54,15 +58,17 @@ describe("actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (globalThis as any).Zotero = {
+      BetterBibTeX: {},
       logError: vi.fn(),
       warn: vi.fn(),
       debug: vi.fn(),
-      Prefs: { get: vi.fn() },
+      Prefs: { get: vi.fn(), set: vi.fn() },
     };
     (globalThis as any).addon = {
       data: { config: { prefsPrefix: "extensions.zotero.zoteroobsidian" } },
     };
     mocks.getMainWindow.mockReturnValue({ focus: vi.fn() });
+    mocks.showNotice.mockReturnValue(true);
     mocks.getObsidianTagName.mockReturnValue("obsLitNote");
     mocks.ensureObsidianConnection.mockResolvedValue({ ready: true });
     mocks.getItemPayload.mockImplementation(async (item: any) => ({
@@ -77,6 +83,50 @@ describe("actions", () => {
       const attachment = mkItem("b", false);
       expect(regularItems([regular, attachment])).toEqual([regular]);
     });
+  });
+
+  it("recommends BBT once across create and open without blocking either", async () => {
+    const zotero = (globalThis as any).Zotero;
+    delete zotero.BetterBibTeX;
+    let shown = false;
+    zotero.Prefs.get.mockImplementation(() => shown);
+    zotero.Prefs.set.mockImplementation(() => {
+      shown = true;
+    });
+    mocks.postToObsidian.mockResolvedValue({ success: true, results: [] });
+
+    await createLitNotes([mkItem("a")]);
+    await openLitNote([mkItem("a")]);
+
+    expect(mocks.showNotice).toHaveBeenCalledOnce();
+    expect(mocks.showNotice.mock.calls[0][0]).toContain(
+      "Better BibTeX is not active",
+    );
+    expect(zotero.Prefs.set).toHaveBeenCalledWith(
+      "extensions.zotero.zoteroobsidian.betterBibTeXNoticeShown",
+      true,
+      true,
+    );
+    expect(mocks.postToObsidian).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not consume the BBT notice if it could not be displayed", async () => {
+    const zotero = (globalThis as any).Zotero;
+    delete zotero.BetterBibTeX;
+    mocks.showNotice.mockReturnValue(false);
+    mocks.postToObsidian.mockResolvedValue({ success: true, results: [] });
+
+    await openLitNote([mkItem("a")]);
+
+    expect(mocks.showNotice).toHaveBeenCalledOnce();
+    expect(zotero.Prefs.set).not.toHaveBeenCalled();
+    expect(mocks.postToObsidian).toHaveBeenCalledOnce();
+  });
+
+  it("does not recommend BBT when it is active", async () => {
+    mocks.postToObsidian.mockResolvedValue({ success: true, results: [] });
+    await createLitNotes([mkItem("a")]);
+    expect(mocks.showNotice).not.toHaveBeenCalled();
   });
 
   describe("createLitNotes", () => {

@@ -16,6 +16,7 @@ export interface ZoteroAttachment {
   title?: string;
   path?: string;
   url?: string;
+  isFile?: boolean;
 }
 
 export interface ZoteroRelation {
@@ -254,8 +255,9 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
     if (att) {
       attachments.push({
         title: att.getField("title"),
-        path: att.getFilePath(),
+        path: att.getFilePath() || undefined,
         url: att.getField("url"),
+        isFile: att.isFileAttachment(),
       });
     }
   }

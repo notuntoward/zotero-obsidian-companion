@@ -2,6 +2,14 @@ import { KeyModifier } from "zotero-plugin-toolkit";
 
 export function registerPrefsScripts(_window: Window): void {
   const doc = _window.document;
+  const bbtStatus = doc.getElementById(
+    `zotero-prefpane-${addon.data.config.addonRef}-betterBibTeXStatus`,
+  );
+  if (bbtStatus) {
+    bbtStatus.textContent = Reflect.get(Zotero, "BetterBibTeX")
+      ? "Better BibTeX: active"
+      : "Better BibTeX: not active (recommended for citation key generation)";
+  }
 
   const prefs = [
     "hotkeyCreateLitNote",

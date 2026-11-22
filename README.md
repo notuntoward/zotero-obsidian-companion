@@ -5,19 +5,13 @@
 [![OpenSSF Scorecard](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/scorecard.yml/badge.svg)](https://github.com/notuntoward/zotero-obsidian-companion/actions/workflows/scorecard.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/notuntoward/zotero-obsidian-companion/badge)](https://securityscorecards.dev/viewer/?uri=github.com/notuntoward/zotero-obsidian-companion)
 
-Zotero 7/8/9 plugin that pairs with the [Perplexity Saver](https://github.com/notuntoward/obsidian-perplexity-saver) Obsidian plugin.
+Zotero 10 plugin that pairs with the [Perplexity Saver](https://github.com/notuntoward/obsidian-perplexity-saver) Obsidian plugin.
 
 It allows you to create beautifully formatted literature notes directly from Zotero items into your Obsidian vault, and automatically syncs tag indicators (e.g. `#obsLitNote`) between Zotero items and your existing Obsidian literature notes.
 
-## Zero-Configuration Architecture
+## Zotero and Obsidian setup
 
-This system uses a **zero-configuration local HTTP server** to communicate.
-
-1. The **Obsidian plugin** automatically runs a local HTTP server on port `27124` when Obsidian is open.
-2. The **Zotero plugin** sends JSON payloads to that exact port when you trigger a command.
-3. The **Obsidian plugin** receives the payload, formats the Markdown, and writes it directly to the OS filesystem based on your Obsidian settings.
-
-Because of this, there are **no file paths, ports, or URLs to configure in Zotero**. As long as Obsidian is open, the Perplexity Saver plugin is enabled, and your "Lit Notes Folder" is set in Obsidian, it "just works" out of the box!
+For complete Obsidian and Zotero setup, including citation keys, attachments, ZotMoov, and linked attachment paths, see [Zotero and Obsidian setup](https://github.com/notuntoward/obsidian-perplexity-saver#zotero-and-obsidian-setup) in the Perplexity Saver README.
 
 ## Acknowledgements
 
@@ -26,8 +20,8 @@ This plugin was heavily inspired by [MarkDB-Connect](https://github.com/daeh/zot
 ## Installation
 
 1. Go to the [Releases](https://github.com/notuntoward/zotero-obsidian-companion/releases) page and download the latest `.xpi` file. (Or build it yourself, see below).
-2. Open Zotero and go to **Tools -> Add-ons**.
-3. Click the gear icon in the top right corner and select **Install Add-on From File...**.
+2. Open Zotero and go to **Tools -> Plugins**.
+3. Click the gear icon in the top right corner and select **Install Plugin From File...**.
 4. Select the downloaded `.xpi` file.
 5. Restart Zotero when prompted.
 
@@ -35,10 +29,10 @@ This plugin was heavily inspired by [MarkDB-Connect](https://github.com/daeh/zot
 
 All commands are accessed by right-clicking any item in your Zotero library and expanding the **Obsidian** menu:
 
-- **Create Lit Note:** Extracts the Zotero item's metadata, abstract, authors, and notes, and pushes them to Obsidian. Obsidian automatically generates the Markdown file and opens it. If a note already exists, Zotero will prompt you to overwrite it.
+- **Create Lit Note:** Extracts the Zotero item's metadata, abstract, authors, and notes, and sends them to Obsidian. If a note already exists, Obsidian asks what to do.
 - **Open Lit Note:** Tells Obsidian to instantly jump to the literature note corresponding to this Zotero item (based on the citekey).
-- **Sync Has-note Indicators:** Manually forces Zotero to check which literature notes exist in your Obsidian vault and updates the colored tag indicators in Zotero. This also happens automatically on startup and after creating or updating a literature note.
-- **Regen Citation Key:** Forces Better BibTeX to regenerate the citation key for the selected item(s).
+- **Sync Has-note Indicators:** Manually forces Zotero to check which literature notes exist in your Obsidian vault and updates the colored tag indicators in Zotero. This also happens automatically on startup and after creating a literature note.
+- **Regen Citation Key:** Uses Better BibTeX to propose a citation key for the selected item(s), which you can edit before saving.
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
 
 ## Settings Configuration
@@ -78,5 +72,5 @@ output goes to the `build/` directory at the project root.
 
 1. Navigate to the generated `build/` directory inside the project folder.
 2. You will find the newly built `obsidian.xpi` (alongside `update.json` and the unpacked `addon/` directory).
-3. Open Zotero, go to **Tools -> Add-ons**.
-4. Click the gear icon (top right) -> **Install Add-on From File...** and select the `.xpi` file.
+3. Open Zotero, go to **Tools -> Plugins**.
+4. Click the gear icon (top right) -> **Install Plugin From File...** and select the `.xpi` file.

@@ -8,6 +8,7 @@ import { regenBibtexKey } from "./regenBibtex";
 import { ensureObsidianConnection, postToObsidian } from "./obsidianConnection";
 import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
 import { getMainWindow, showAlert } from "../utils/alert";
+import { showNotice } from "../utils/progressNotice";
 
 declare const Zotero: any;
 declare const addon: any;
@@ -118,6 +119,19 @@ function readResults(json: any): LitNoteItemResult[] {
   return Array.isArray(json?.results) ? json.results : [];
 }
 
+function recommendBetterBibTeX(): void {
+  const pref = addon.data.config.prefsPrefix + ".betterBibTeXNoticeShown";
+  if (Zotero.BetterBibTeX || Zotero.Prefs.get(pref, true)) return;
+  if (
+    showNotice(
+      "Better BibTeX is not active. It is recommended for citation key generation; you can also enter keys in Zotero.",
+      { type: "fail", timeoutMs: 10000 },
+    )
+  ) {
+    Zotero.Prefs.set(pref, true, true);
+  }
+}
+
 /**
  * Create (or overwrite) lit notes for the selected items. Any decision about an
  * existing note is made in Obsidian's modal, so no Zotero dialog can be hidden
@@ -129,6 +143,7 @@ export async function createLitNotes(items: any[]): Promise<void> {
   const win = getMainWindow();
 
   try {
+    recommendBetterBibTeX();
     const pairs = await buildPayloads(win, targets);
     if (!pairs) return;
 
@@ -178,6 +193,7 @@ export async function openLitNote(items: any[]): Promise<void> {
   const win = getMainWindow();
 
   try {
+    recommendBetterBibTeX();
     const pairs = await buildPayloads(win, targets);
     if (!pairs) return;
 
