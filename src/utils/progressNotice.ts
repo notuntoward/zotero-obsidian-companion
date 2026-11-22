@@ -28,6 +28,7 @@ const COMPACT_CSS = [
   "  min-width: 120px !important;",
   "  max-width: 480px !important;",
   "  white-space: normal !important;",
+  "  overflow-wrap: anywhere !important;",
   "}",
 ].join("\n");
 
@@ -37,19 +38,51 @@ export function pluginIconUrl(): string {
   return addonRef ? `chrome://${addonRef}/content/icons/favicon.svg` : "";
 }
 
+function sizeAndPositionWindow(win: any): void {
+  win.sizeToContent();
+  Zotero.ProgressWindowSet.tile(win);
+  const screen = win.screen;
+  if (!screen) return;
+  const { availLeft, availTop, availWidth, availHeight } = screen;
+  if (
+    ![
+      availLeft,
+      availTop,
+      availWidth,
+      availHeight,
+      win.screenX,
+      win.screenY,
+      win.outerWidth,
+      win.outerHeight,
+    ].every(Number.isFinite) ||
+    availWidth <= 0 ||
+    availHeight <= 0
+  )
+    return;
+  const x = Math.max(
+    availLeft,
+    Math.min(win.screenX, availLeft + availWidth - win.outerWidth),
+  );
+  const y = Math.max(
+    availTop,
+    Math.min(win.screenY, availTop + availHeight - win.outerHeight),
+  );
+  if (x !== win.screenX || y !== win.screenY) win.moveTo(x, y);
+}
+
 function resizeWindow(win: any): void {
   try {
-    win?.sizeToContent?.();
+    sizeAndPositionWindow(win);
     // Text wrapping at the new width can take an extra layout pass to settle.
     win?.setTimeout?.(() => {
       try {
-        win.sizeToContent?.();
-      } catch {
-        /* ignore */
+        sizeAndPositionWindow(win);
+      } catch (e) {
+        Zotero.debug(`[zoteroobsidian] resize progress window error: ${e}`);
       }
     }, 0);
-  } catch {
-    /* ignore */
+  } catch (e) {
+    Zotero.debug(`[zoteroobsidian] resize progress window error: ${e}`);
   }
 }
 

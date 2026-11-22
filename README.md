@@ -31,15 +31,18 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 
 - **Create Lit Note:** Extracts the Zotero item's metadata, abstract, authors, and notes, and sends them to Obsidian. If a note already exists, Obsidian asks what to do.
 - **Open Lit Note:** Tells Obsidian to instantly jump to the literature note corresponding to this Zotero item (based on the citekey).
+- **Update Lit Note:** Previews and refreshes the selected existing notes' Zotero metadata, citation keys, and attachment links in Obsidian.
 - **Sync Has-note Indicators:** Manually forces Zotero to check which literature notes exist in your Obsidian vault and updates the colored tag indicators in Zotero. This also happens automatically on startup and after creating a literature note.
 - **Regen Citation Key:** Uses Better BibTeX to propose a citation key for the selected item(s), which you can edit before saving.
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
+
+Citation-key and attachment changes are also reconciled automatically when both plugins are running. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
 
 ## Settings Configuration
 
 Configure settings in Zotero via **Edit -> Settings -> Obsidian**:
 
-- **Keyboard Shortcuts:** Assign custom hotkeys to all commands (Create Lit Note, Open Lit Note, Sync Tags, Toggle Panes, Regen BibTeX Key).
+- **Keyboard Shortcuts:** Assign custom hotkeys to Create Lit Note, Open Lit Note, Sync Tags, Toggle Panes, and Regen BibTeX Key.
 - **Has-note Indicator Tag:**
   - **Zotero tag showing item has an Obsidian note** (default: `obsLitNote`): The tag assigned to Zotero items when a corresponding literature note exists in Obsidian. The plugin automatically assigns a green color to this tag on startup.
 - **Zotero Interface:**

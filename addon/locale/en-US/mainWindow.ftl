@@ -6,6 +6,9 @@ menu-create-lit-note =
 
 menu-open-lit-note =
     .label = Open Lit Note
+menu-update-lit-note =
+    .label = Update Lit Note
+
 
 menu-regen-citation-key =
     .label = Regen Citation Key

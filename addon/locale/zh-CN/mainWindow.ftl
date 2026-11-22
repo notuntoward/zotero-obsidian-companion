@@ -6,6 +6,9 @@ menu-create-lit-note =
 
 menu-open-lit-note =
     .label = 打开文献笔记
+menu-update-lit-note =
+    .label = 更新文献笔记
+
 
 menu-regen-citation-key =
     .label = 重新生成引用键

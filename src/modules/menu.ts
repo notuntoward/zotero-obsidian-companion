@@ -9,6 +9,7 @@ import {
   createLitNotes,
   openLitNote,
   regenerateCitationKeys,
+  updateLitNotes,
   regularItems,
   syncHasNoteIndicators,
   toggleLeftPaneAction,
@@ -60,6 +61,15 @@ export function registerItemMenu(): void {
               context.setVisible(hasRegularItem(context)),
             onCommand: (_event: any, context: any) => {
               void openLitNote(selectedRegularItems(context));
+            },
+          },
+          {
+            menuType: "menuitem",
+            l10nID: l10nId("menu-update-lit-note"),
+            onShowing: (_event: any, context: any) =>
+              context.setVisible(hasRegularItem(context)),
+            onCommand: (_event: any, context: any) => {
+              void updateLitNotes(selectedRegularItems(context));
             },
           },
           {

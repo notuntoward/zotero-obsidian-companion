@@ -62,9 +62,29 @@ The Zotero side posts to `http://127.0.0.1:27124/lit-note`:
 
 - `{ action: "create", data: ZoteroItemPayload[] }`
 - `{ action: "open", data: ZoteroItemPayload[] }`
+- `{ action: "sync", data: ZoteroItemPayload[] }` for automatic reconciliation
+- `{ action: "update", data: ZoteroItemPayload[] }` for previewed metadata updates
+- `{ action: "apply-sync" | "validate-zotero-key", token, data: [ZoteroItemPayload] }` to revalidate an approved plan
 
-Obsidian replies with `{ success, results: [{ citekey, status, error? }] }`
-where `status` is `created | overwritten | opened | skipped | missing | error`.
+Obsidian replies with `{ success, results: [{ citekey, status, error? }] }`.
+In addition to `created | overwritten | opened | updated | skipped | missing | error`,
+reconciliation can return `prepared` with a one-use token, or `set-zotero-key`
+with a token and expected/selected keys. Re-read the Zotero payload and validate
+the token before applying a plan or changing Zotero; verify saved keys and
+refresh attachment snapshots before continuing. Never treat a prepared plan as
+a completed update. `GET /lit-note-identities` returns indexed identities and
+note modification metadata and Obsidian note paths. When citation keys differ, the companion sends a
+`citationKeyCheck` listing matching items in accessible Zotero libraries. It
+rechecks that result before changing Zotero; lookup failures stop the update.
+When a prepared plan has `needsAttachmentCheck`, enumerate the file paths of
+attachments in accessible user and group libraries, including trashed items,
+and supply them as `zoteroAttachmentPaths` on `apply-sync`. Fail closed when
+the inventory or a file path is unavailable.
+The automatic path waits for stable snapshots and retries when Obsidian becomes
+available again. Payloads identify the Zotero library by name and attachments by
+item key. After changing a citekey in Zotero, `zoteroChanges` records the prior
+citekey and only file moves verified by the same attachment item key; preserve
+this summary when revalidating and applying the resulting one-use plan.
 
 `src/modules/actions.ts` batches all selected items into ONE request, tags the
 items whose status means the note now exists
@@ -99,7 +119,9 @@ alert.
   `document.createElementNS("http://www.w3.org/1999/xhtml", "style")`. Also
   call `sizeToContent()` again after changing a notice's text later
   (`resizeCompactProgressWindow()`) — `setText()` does not resize the window
-  on its own, only `addLines()`/`addDescription()` do.
+  on its own, only `addLines()`/`addDescription()` do. After resizing, call
+  `Zotero.ProgressWindowSet.tile(win)` and constrain the notice to its screen's
+  available bounds; resizing without repositioning can leave it off-screen.
 - `Zotero.Promise` is a shim in Zotero 10: only `delay`, `defer`, and `method`
   are guaranteed. Do not use Bluebird-only methods.
 - Guard long-running async work against shutdown with `addon.data.alive`

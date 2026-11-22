@@ -3,6 +3,12 @@
  */
 
 import { getItemPayload } from "./obsidianPayload";
+import { resolveNoteKeyChoices } from "./resolveNoteKeys";
+import {
+  addCitationKeyCheck,
+  findNoteIdentity,
+  getNoteIdentities,
+} from "./citationKeyCheck";
 import { getObsidianTagName, syncObsidianTags } from "./obsidianTagSync";
 import { regenBibtexKey } from "./regenBibtex";
 import { ensureObsidianConnection, postToObsidian } from "./obsidianConnection";
@@ -14,7 +20,13 @@ declare const Zotero: any;
 declare const addon: any;
 
 type LitNoteStatus =
-  "created" | "overwritten" | "opened" | "skipped" | "missing" | "error";
+  | "created"
+  | "overwritten"
+  | "opened"
+  | "updated"
+  | "skipped"
+  | "missing"
+  | "error";
 
 interface LitNoteItemResult {
   citekey: string;
@@ -218,6 +230,46 @@ export async function openLitNote(items: any[]): Promise<void> {
   } catch (err) {
     Zotero.logError(err as any);
     showAlert(win, "Error", String(err));
+  }
+}
+
+export async function updateLitNotes(items: any[]): Promise<void> {
+  const targets = regularItems(items);
+  if (!targets.length) return;
+  const win = getMainWindow();
+  try {
+    recommendBetterBibTeX();
+    const pairs = await buildPayloads(win, targets);
+    if (!pairs) return;
+    const conn = await ensureObsidianConnection({
+      progressMessage: "Launching Obsidian to update literature notes...",
+    });
+    if (!conn.ready) return;
+    const identities = await getNoteIdentities();
+    for (const { item, payload } of pairs) {
+      await addCitationKeyCheck(
+        item,
+        payload,
+        findNoteIdentity(payload, identities),
+      );
+    }
+    const json = await postToObsidian({
+      action: "update",
+      data: pairs.map((pair) => pair.payload),
+    });
+    const results = await resolveNoteKeyChoices("update", pairs, json);
+    const errors = collectErrors({ results });
+    for (const result of results) {
+      if (result.status === "missing")
+        errors.push(
+          `${result.citekey || "(unknown)"}: literature note not found`,
+        );
+    }
+    if (errors.length)
+      showAlert(win, "Obsidian Plugin Error", errors.join("\n"));
+  } catch (error) {
+    Zotero.logError(error as any);
+    showAlert(win, "Error", String(error));
   }
 }
 

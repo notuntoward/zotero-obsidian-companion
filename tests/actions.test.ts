@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   postToObsidian: vi.fn(),
   ensureObsidianConnection: vi.fn(),
   getItemPayload: vi.fn(),
+  getNoteIdentities: vi.fn(),
+  findNoteIdentity: vi.fn(),
+  addCitationKeyCheck: vi.fn(),
   getObsidianTagName: vi.fn(() => "obsLitNote"),
   syncObsidianTags: vi.fn(),
   regenBibtexKey: vi.fn(),
@@ -28,6 +31,12 @@ vi.mock("../src/modules/obsidianConnection", () => ({
 vi.mock("../src/modules/obsidianPayload", () => ({
   getItemPayload: mocks.getItemPayload,
 }));
+vi.mock("../src/modules/citationKeyCheck", () => ({
+  getNoteIdentities: mocks.getNoteIdentities,
+  findNoteIdentity: mocks.findNoteIdentity,
+  addCitationKeyCheck: mocks.addCitationKeyCheck,
+  checkCitationKey: vi.fn(),
+}));
 vi.mock("../src/modules/obsidianTagSync", () => ({
   getObsidianTagName: mocks.getObsidianTagName,
   syncObsidianTags: mocks.syncObsidianTags,
@@ -44,6 +53,7 @@ import {
   createLitNotes,
   openLitNote,
   regenerateCitationKeys,
+  updateLitNotes,
   regularItems,
 } from "../src/modules/actions";
 
@@ -57,6 +67,7 @@ const mkItem = (citekey: string, regular = true) => ({
 describe("actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.addCitationKeyCheck.mockReset();
     (globalThis as any).Zotero = {
       BetterBibTeX: {},
       logError: vi.fn(),
@@ -71,6 +82,7 @@ describe("actions", () => {
     mocks.showNotice.mockReturnValue(true);
     mocks.getObsidianTagName.mockReturnValue("obsLitNote");
     mocks.ensureObsidianConnection.mockResolvedValue({ ready: true });
+    mocks.getNoteIdentities.mockResolvedValue([]);
     mocks.getItemPayload.mockImplementation(async (item: any) => ({
       citekey: item.citekey,
       title: `Title ${item.citekey}`,
@@ -83,6 +95,46 @@ describe("actions", () => {
       const attachment = mkItem("b", false);
       expect(regularItems([regular, attachment])).toEqual([regular]);
     });
+  });
+
+  it("sends metadata updates in one batch and reports missing notes", async () => {
+    mocks.postToObsidian.mockResolvedValue({
+      success: true,
+      results: [{ citekey: "a", status: "missing" }],
+    });
+    await updateLitNotes([mkItem("a")]);
+    expect(mocks.postToObsidian).toHaveBeenCalledWith({
+      action: "update",
+      data: [{ citekey: "a", title: "Title a" }],
+    });
+    expect(mocks.showAlert.mock.calls[0][2]).toContain(
+      "literature note not found",
+    );
+  });
+
+  it("checks the note citation key before sending a manual update", async () => {
+    const item = mkItem("a");
+    const identity = { itemkey: "ABC", citekey: "note" };
+    mocks.getNoteIdentities.mockResolvedValue([identity]);
+    mocks.findNoteIdentity.mockReturnValue(identity);
+    mocks.addCitationKeyCheck.mockImplementation(
+      async (_item: any, payload: any) => {
+        payload.citationKeyCheck = { citekey: "note", matches: [] };
+      },
+    );
+    mocks.postToObsidian.mockResolvedValue({
+      success: true,
+      results: [{ citekey: "a", status: "missing" }],
+    });
+    await updateLitNotes([item]);
+    expect(mocks.addCitationKeyCheck).toHaveBeenCalledWith(
+      item,
+      expect.anything(),
+      identity,
+    );
+    expect(
+      mocks.postToObsidian.mock.calls[0][0].data[0].citationKeyCheck,
+    ).toEqual({ citekey: "note", matches: [] });
   });
 
   it("recommends BBT once across create and open without blocking either", async () => {

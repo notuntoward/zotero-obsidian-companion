@@ -61,7 +61,10 @@ function makeWindowForLine() {
 
 describe("progressNotice", () => {
   beforeEach(() => {
-    (globalThis as any).Zotero = { debug: vi.fn() };
+    (globalThis as any).Zotero = {
+      debug: vi.fn(),
+      ProgressWindowSet: { tile: vi.fn() },
+    };
     (globalThis as any).addon = {
       data: {
         config: { addonRef: "zoteroobsidian", addonName: "Obsidian" },
@@ -135,6 +138,53 @@ describe("progressNotice", () => {
       const { line, sizeToContent } = makeWindowForLine();
       resizeCompactProgressWindow(line);
       expect(sizeToContent).toHaveBeenCalled();
+    });
+
+    it("retiles and keeps a resized notice inside its monitor's work area", () => {
+      const { line, win, sizeToContent } = makeWindowForLine();
+      const tile = vi.fn();
+      (globalThis as any).Zotero.ProgressWindowSet = { tile };
+      Object.assign(win, {
+        screen: {
+          availLeft: -1920,
+          availTop: 0,
+          availWidth: 1920,
+          availHeight: 1040,
+        },
+        screenX: -100,
+        screenY: 1000,
+        outerWidth: 400,
+        outerHeight: 160,
+        moveTo: vi.fn(),
+      });
+      resizeCompactProgressWindow(line);
+      expect(tile).toHaveBeenCalledWith(win);
+      expect(sizeToContent.mock.invocationCallOrder[0]).toBeLessThan(
+        tile.mock.invocationCallOrder[0],
+      );
+      expect(win.moveTo).toHaveBeenCalledWith(-400, 880);
+    });
+
+    it("does not move a notice that remains within its monitor", () => {
+      const { line, win } = makeWindowForLine();
+      Object.assign(win, {
+        screen: {
+          availLeft: 1920,
+          availTop: 0,
+          availWidth: 1920,
+          availHeight: 1040,
+        },
+        screenX: 3000,
+        screenY: 700,
+        outerWidth: 400,
+        outerHeight: 160,
+        moveTo: vi.fn(),
+      });
+      resizeCompactProgressWindow(line);
+      expect(
+        (globalThis as any).Zotero.ProgressWindowSet.tile,
+      ).toHaveBeenCalledWith(win);
+      expect(win.moveTo).not.toHaveBeenCalled();
     });
 
     it("does nothing when the window is not yet available", () => {

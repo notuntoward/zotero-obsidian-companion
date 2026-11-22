@@ -13,6 +13,7 @@ export interface ZoteroCreator {
 }
 
 export interface ZoteroAttachment {
+  itemkey?: string;
   title?: string;
   path?: string;
   url?: string;
@@ -21,6 +22,16 @@ export interface ZoteroAttachment {
 
 export interface ZoteroRelation {
   citekey?: string;
+}
+
+export interface CitationKeyCheck {
+  citekey: string;
+  matches: Array<{
+    title: string;
+    citekey: string;
+    libraryURI: string;
+    itemkey: string;
+  }>;
 }
 
 export interface ZoteroItemPayload {
@@ -37,6 +48,8 @@ export interface ZoteroItemPayload {
   creators?: ZoteroCreator[];
   date?: string;
   itemkey?: string;
+  libraryURI?: string;
+  libraryName?: string;
   itemType?: string;
   publicationTitle?: string;
   volume?: string;
@@ -49,6 +62,11 @@ export interface ZoteroItemPayload {
   notes?: string[]; // HTML strings
   attachments?: ZoteroAttachment[];
   relations?: ZoteroRelation[];
+  citationKeyCheck?: CitationKeyCheck;
+  zoteroChanges?: {
+    previousCitekey: string;
+    attachmentMoves: Array<{ itemkey: string; from: string; to: string }>;
+  };
 }
 
 export async function getCiteKey(item: any): Promise<string> {
@@ -65,7 +83,7 @@ export async function getCiteKey(item: any): Promise<string> {
   if (!citekey && Zotero.BetterBibTeX && Zotero.BetterBibTeX.KeyManager) {
     try {
       const bbtKey = Zotero.BetterBibTeX.KeyManager.get(item.id);
-      if (bbtKey && bbtKey.citekey) citekey = bbtKey.citekey;
+      if (bbtKey && bbtKey.citationKey) citekey = bbtKey.citationKey;
     } catch (e) {
       // ignore
     }
@@ -227,6 +245,31 @@ function getFieldSafe(item: any, fieldName: string): string | undefined {
   }
 }
 
+function getAttachments(item: any): ZoteroAttachment[] {
+  return item.getAttachments().map((id: number) => {
+    const att = Zotero.Items.get(id);
+    if (!att) throw new Error(`Zotero attachment ${id} could not be loaded.`);
+    return {
+      itemkey: att.key,
+      title: att.getField("title"),
+      path: att.getFilePath() || undefined,
+      url: att.getField("url"),
+      isFile: att.isFileAttachment(),
+    };
+  });
+}
+
+export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {
+  return {
+    title: item.getField("title") || "(untitled)",
+    citekey: await getCiteKey(item),
+    itemkey: item.key,
+    libraryURI: Zotero.URI.getLibraryURI(item.libraryID),
+    libraryName: Zotero.Libraries.get(item.libraryID).name,
+    attachments: getAttachments(item),
+  };
+}
+
 export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
   const citekey = await getCiteKey(item);
 
@@ -246,21 +289,8 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
     creatorType: Zotero.CreatorTypes.getName(c.creatorTypeID),
   }));
 
-  const attachments: ZoteroAttachment[] = [];
+  const attachments = getAttachments(item);
   const notes: string[] = [];
-
-  const attachmentIDs = item.getAttachments();
-  for (const id of attachmentIDs) {
-    const att = Zotero.Items.get(id);
-    if (att) {
-      attachments.push({
-        title: att.getField("title"),
-        path: att.getFilePath() || undefined,
-        url: att.getField("url"),
-        isFile: att.isFileAttachment(),
-      });
-    }
-  }
 
   const noteIDs = item.getNotes();
   for (const id of noteIDs) {
@@ -353,6 +383,8 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
     creators,
     date: getFieldSafe(item, "date"),
     itemkey: item.key,
+    libraryURI: Zotero.URI.getLibraryURI(item.libraryID),
+    libraryName: Zotero.Libraries.get(item.libraryID).name,
     itemType: Zotero.ItemTypes.getName(item.itemTypeID),
     publicationTitle: getFieldSafe(item, "publicationTitle"),
     volume: getFieldSafe(item, "volume"),

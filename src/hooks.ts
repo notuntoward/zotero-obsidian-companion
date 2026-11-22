@@ -5,6 +5,7 @@ import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerHotkeys } from "./modules/hotkeys";
 import { showNotice } from "./utils/progressNotice";
+import { startAutoSync, stopAutoSync } from "./modules/autoSync";
 
 async function onStartup() {
   await Promise.all([
@@ -30,6 +31,7 @@ async function onStartup() {
   // main windows and removes the menu automatically on shutdown.
   registerItemMenu();
 
+  startAutoSync();
   try {
     await syncObsidianTags(addon);
   } catch (e) {
@@ -55,6 +57,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 function onShutdown(): void {
+  stopAutoSync();
   ztoolkit.unregisterAll();
   addon.data.alive = false;
   // @ts-ignore - Plugin instance is not typed
