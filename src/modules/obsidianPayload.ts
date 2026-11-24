@@ -2,6 +2,8 @@
  * Extracts payload data from Zotero items to send to Obsidian Perplexity Saver.
  */
 
+import { getValidatedAttachmentBaseDirectory } from "./attachmentBaseMonitor";
+
 // Zotero global is available in this context
 declare const Zotero: any;
 
@@ -18,6 +20,8 @@ export interface ZoteroAttachment {
   path?: string;
   url?: string;
   isFile?: boolean;
+  mode?: "linked" | "stored" | "url";
+  usesRelativePath?: boolean;
 }
 
 export interface ZoteroRelation {
@@ -50,6 +54,7 @@ export interface ZoteroItemPayload {
   itemkey?: string;
   libraryURI?: string;
   libraryName?: string;
+  libraryType?: "user" | "group";
   itemType?: string;
   publicationTitle?: string;
   volume?: string;
@@ -61,6 +66,10 @@ export interface ZoteroItemPayload {
   allTags?: string[];
   notes?: string[]; // HTML strings
   attachments?: ZoteroAttachment[];
+  linkedAttachmentBaseDirectory?: string;
+  linkedAttachmentBaseDirectoryValidated?: boolean;
+  /** Filename (without extension) Zotero's renaming template produces for this item. */
+  attachmentBaseName?: string;
   relations?: ZoteroRelation[];
   citationKeyCheck?: CitationKeyCheck;
   zoteroChanges?: {
@@ -249,14 +258,43 @@ function getAttachments(item: any): ZoteroAttachment[] {
   return item.getAttachments().map((id: number) => {
     const att = Zotero.Items.get(id);
     if (!att) throw new Error(`Zotero attachment ${id} could not be loaded.`);
+    const isFile = att.isFileAttachment();
+    const mode = !isFile
+      ? "url"
+      : att.attachmentLinkMode === Zotero.Attachments.LINK_MODE_LINKED_FILE
+        ? "linked"
+        : att.attachmentLinkMode ===
+              Zotero.Attachments.LINK_MODE_IMPORTED_FILE ||
+            att.attachmentLinkMode === Zotero.Attachments.LINK_MODE_IMPORTED_URL
+          ? "stored"
+          : undefined;
     return {
       itemkey: att.key,
       title: att.getField("title"),
       path: att.getFilePath() || undefined,
       url: att.getField("url"),
-      isFile: att.isFileAttachment(),
+      isFile,
+      mode,
+      ...(mode === "linked"
+        ? {
+            usesRelativePath:
+              typeof att.attachmentPath === "string" &&
+              att.attachmentPath.startsWith(
+                Zotero.Attachments.BASE_PATH_PLACEHOLDER,
+              ),
+          }
+        : {}),
     };
   });
+}
+
+function getAttachmentBaseName(item: any): string | undefined {
+  try {
+    return Zotero.Attachments.getFileBaseNameFromItem(item) || undefined;
+  } catch {
+    // Obsidian falls back to the citation key when the template cannot be applied.
+    return undefined;
+  }
 }
 
 export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {
@@ -266,7 +304,16 @@ export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {
     itemkey: item.key,
     libraryURI: Zotero.URI.getLibraryURI(item.libraryID),
     libraryName: Zotero.Libraries.get(item.libraryID).name,
+    libraryType: Zotero.Libraries.get(item.libraryID).libraryType,
     attachments: getAttachments(item),
+    attachmentBaseName: getAttachmentBaseName(item),
+    linkedAttachmentBaseDirectory: String(
+      Zotero.Prefs.get("baseAttachmentPath") || "",
+    ),
+    linkedAttachmentBaseDirectoryValidated:
+      !!Zotero.Prefs.get("baseAttachmentPath") &&
+      String(Zotero.Prefs.get("baseAttachmentPath")) ===
+        getValidatedAttachmentBaseDirectory(),
   };
 }
 
@@ -385,6 +432,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
     itemkey: item.key,
     libraryURI: Zotero.URI.getLibraryURI(item.libraryID),
     libraryName: Zotero.Libraries.get(item.libraryID).name,
+    libraryType: Zotero.Libraries.get(item.libraryID).libraryType,
     itemType: Zotero.ItemTypes.getName(item.itemTypeID),
     publicationTitle: getFieldSafe(item, "publicationTitle"),
     volume: getFieldSafe(item, "volume"),
@@ -396,6 +444,13 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
     allTags: tags,
     notes,
     attachments,
+    linkedAttachmentBaseDirectory: String(
+      Zotero.Prefs.get("baseAttachmentPath") || "",
+    ),
+    linkedAttachmentBaseDirectoryValidated:
+      !!Zotero.Prefs.get("baseAttachmentPath") &&
+      String(Zotero.Prefs.get("baseAttachmentPath")) ===
+        getValidatedAttachmentBaseDirectory(),
     relations,
   };
 }

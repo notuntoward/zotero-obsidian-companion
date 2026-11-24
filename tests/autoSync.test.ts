@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   addCheck: vi.fn(),
   report: vi.fn(),
   closeReport: vi.fn(),
+  moveAttachments: vi.fn(),
 }));
 vi.mock("../src/modules/obsidianConnection", () => ({
   isObsidianServerReady: mocks.ready,
@@ -20,17 +21,28 @@ vi.mock("../src/modules/citationKeyCheck", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/modules/citationKeyCheck")>()),
   addCitationKeyCheck: mocks.addCheck,
 }));
+vi.mock("../src/modules/attachmentMover", () => ({
+  moveReviewedAttachments: mocks.moveAttachments,
+}));
+vi.mock("../src/modules/attachmentBaseMonitor", () => ({
+  getAttachmentBaseValidationState: () => "valid",
+}));
 vi.mock("../src/modules/noteMatchReport", () => ({
   showNoteMatchReport: mocks.report,
   closeNoteMatchReport: mocks.closeReport,
 }));
 vi.mock("../src/utils/progressNotice", () => ({ showNotice: mocks.notice }));
 
-import { stopAutoSync, syncExistingNotesOnce } from "../src/modules/autoSync";
+import {
+  processReviewRequests,
+  stopAutoSync,
+  syncExistingNotesOnce,
+} from "../src/modules/autoSync";
 
 describe("automatic note reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.moveAttachments.mockReset();
     mocks.addCheck.mockReset();
     mocks.report.mockReset();
     (globalThis as any).addon = { data: { alive: true } };
@@ -65,6 +77,336 @@ describe("automatic note reconciliation", () => {
       results: [{ citekey: "new", status: "updated" }],
     });
     stopAutoSync();
+  });
+  it("moves a requested attachment batch and asks Obsidian to update note links", async () => {
+    const item = { key: "ABC", isRegularItem: () => true, reload: vi.fn() };
+    (globalThis as any).Zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue(
+      item,
+    );
+    const candidate = {
+      baseDirectory: "C:\\vault\\attachments",
+      attachments: [
+        {
+          itemkey: "ATT1",
+          mode: "linked",
+          basename: "paper.html",
+          sourcePath: "C:\\zotero\\paper.html",
+          destinationPath: "C:\\vault\\attachments\\paper.html",
+          resolution: "move",
+          conflict: false,
+          identical: false,
+          sourceMtime: 1,
+        },
+      ],
+      linkNoteFiles: [],
+    };
+    const payload = {
+      itemkey: "ABC",
+      libraryURI: "library",
+      citekey: "new",
+      linkedAttachmentBaseDirectory: candidate.baseDirectory,
+      linkedAttachmentBaseDirectoryValidated: true,
+    };
+    mocks.payload.mockResolvedValue(payload);
+    const moved = [
+      {
+        itemkey: "ATT1",
+        from: "C:\\zotero\\paper.html",
+        to: "C:\\vault\\attachments\\paper.html",
+      },
+    ];
+    mocks.moveAttachments.mockResolvedValue({ moved, linked: [] });
+    (globalThis as any).Zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [
+          {
+            itemkey: "ABC",
+            libraryURI: "library",
+            operation: "attachment-move",
+            attachmentMove: candidate,
+            strategy: "newest",
+          },
+        ],
+        pending: [{ itemkey: "ABC", libraryURI: "library" }],
+      }),
+    });
+
+    await expect(processReviewRequests()).resolves.toBe(false);
+    expect(mocks.moveAttachments).toHaveBeenCalledWith(
+      item,
+      candidate,
+      candidate.baseDirectory,
+      "newest",
+    );
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "attachment-move-complete",
+      data: [payload],
+      moved,
+      linked: [],
+    });
+  });
+  it("revalidates and applies a requested bulk note update", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const item = { key: "ABC", isRegularItem: () => true, reload: vi.fn() };
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue(item);
+    zotero.HTTP.request
+      .mockResolvedValueOnce({
+        responseText: JSON.stringify({
+          success: true,
+          requests: [
+            {
+              itemkey: "ABC",
+              libraryURI: "library",
+              operation: "note-update",
+            },
+          ],
+          pending: [{ itemkey: "ABC", libraryURI: "library" }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        responseText: JSON.stringify({
+          success: true,
+          identities: [
+            { itemkey: "ABC", libraryURI: "library", citekey: "old" },
+          ],
+        }),
+      });
+    mocks.post
+      .mockResolvedValueOnce({
+        results: [{ citekey: "new", status: "prepared", token: "token" }],
+      })
+      .mockResolvedValueOnce({
+        results: [{ citekey: "new", status: "updated" }],
+      });
+    await processReviewRequests();
+    expect(zotero.HTTP.request).toHaveBeenCalledWith(
+      "GET",
+      "http://127.0.0.1:27124/lit-note-review-requests?bulk=1",
+      { timeout: 5000 },
+    );
+    expect(mocks.post.mock.calls[0][0].action).toBe("bulk-review-sync");
+    expect(mocks.post.mock.calls[1][0]).toMatchObject({
+      action: "apply-sync",
+      token: "token",
+    });
+    expect(item.reload).toHaveBeenCalledOnce();
+  });
+
+  it("reloads the Zotero item before sending a library-only correction", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const item = { key: "ABC", isRegularItem: () => true, reload: vi.fn() };
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue(item);
+    zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [
+          { itemkey: "ABC", libraryURI: "library", operation: "library-uri" },
+        ],
+        pending: [{ itemkey: "ABC", libraryURI: "library" }],
+      }),
+    });
+    zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [
+          {
+            itemkey: "ABC",
+            libraryURI: "library",
+            operation: "library-recheck",
+          },
+        ],
+        pending: [{ itemkey: "ABC", libraryURI: "library" }],
+      }),
+    });
+    mocks.post
+      .mockResolvedValueOnce({ results: [{ status: "updated" }] })
+      .mockResolvedValueOnce({ results: [{ status: "skipped" }] });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    await processReviewRequests();
+    expect(item.reload).toHaveBeenCalledTimes(2);
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "review-recheck",
+      data: [expect.objectContaining({ itemkey: "ABC" })],
+    });
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "bulk-library-uri",
+      data: [
+        expect.objectContaining({ itemkey: "ABC", libraryURI: "library" }),
+      ],
+    });
+    expect(mocks.addCheck).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recheck pending while Obsidian indexes the URI", async () => {
+    const zotero = (globalThis as any).Zotero;
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue({
+      isRegularItem: () => true,
+      reload: vi.fn(),
+    });
+    zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [
+          {
+            itemkey: "ABC",
+            libraryURI: "library",
+            operation: "library-recheck",
+          },
+        ],
+        pending: [{ itemkey: "ABC", libraryURI: "library" }],
+      }),
+    });
+    mocks.post.mockResolvedValueOnce({
+      results: [{ status: "waiting-index" }],
+    });
+    expect(await processReviewRequests()).toBe(false);
+    expect(mocks.post).toHaveBeenCalledOnce();
+    expect(mocks.post.mock.calls[0][0].action).toBe("review-recheck");
+  });
+
+  it("does not assign a library when the item key is ambiguous across libraries", async () => {
+    const zotero = (globalThis as any).Zotero;
+    zotero.Libraries.getAll = () => [
+      { libraryType: "user", libraryID: 1 },
+      { libraryType: "group", libraryID: 2 },
+    ];
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue({
+      isRegularItem: () => true,
+    });
+    zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [
+          { itemkey: "ABC", libraryURI: "library", operation: "library-uri" },
+        ],
+        pending: [{ itemkey: "ABC", libraryURI: "library" }],
+      }),
+    });
+    mocks.post.mockResolvedValue({ success: true });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenCalledOnce();
+    expect(mocks.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "review-failed",
+        error: expect.stringContaining("more than one library"),
+      }),
+    );
+  });
+
+  it("reloads only the requested item and checks its current citation key", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const item = { key: "ABC", isRegularItem: () => true, reload: vi.fn() };
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue(item);
+    zotero.HTTP.request
+      .mockResolvedValueOnce({
+        responseText: JSON.stringify({
+          success: true,
+          requests: [{ itemkey: "ABC", libraryURI: "library" }],
+          pending: [{ itemkey: "ABC", libraryURI: "library" }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        responseText: JSON.stringify({
+          success: true,
+          identities: [
+            { itemkey: "ABC", libraryURI: "library", citekey: "old" },
+          ],
+        }),
+      });
+    await processReviewRequests();
+    expect(item.reload).toHaveBeenCalledOnce();
+    expect(mocks.addCheck).toHaveBeenCalledWith(
+      item,
+      expect.objectContaining({ citekey: "new" }),
+      expect.objectContaining({ citekey: "old" }),
+    );
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "review-sync",
+      data: [expect.objectContaining({ itemkey: "ABC" })],
+    });
+  });
+
+  it("returns a missing item to the queue with a specific error", async () => {
+    const zotero = (globalThis as any).Zotero;
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue(false);
+    zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [{ itemkey: "ABC", libraryURI: "library" }],
+        pending: [{ itemkey: "ABC", libraryURI: "library" }],
+      }),
+    });
+    mocks.post.mockResolvedValue({ success: true });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "review-failed",
+      itemkey: "ABC",
+      libraryURI: "library",
+      error: "The Zotero item is missing or in the trash.",
+    });
+    expect(mocks.notice).toHaveBeenCalled();
+  });
+
+  it("returns a failed review request to the queue with its error", async () => {
+    const zotero = (globalThis as any).Zotero;
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue({
+      key: "ABC",
+      isRegularItem: () => true,
+      reload: vi.fn(),
+    });
+    zotero.HTTP.request
+      .mockResolvedValueOnce({
+        responseText: JSON.stringify({
+          success: true,
+          requests: [{ itemkey: "ABC", libraryURI: "library" }],
+          pending: [{ itemkey: "ABC", libraryURI: "library" }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        responseText: JSON.stringify({
+          success: true,
+          identities: [
+            { itemkey: "ABC", libraryURI: "library", citekey: "old" },
+          ],
+        }),
+      });
+    mocks.post
+      .mockResolvedValueOnce({ error: "Connection refused" })
+      .mockResolvedValueOnce({ success: true });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenLastCalledWith({
+      action: "review-failed",
+      itemkey: "ABC",
+      libraryURI: "library",
+      error: "Connection refused",
+    });
+  });
+
+  it("rediscovers a pending review after the Obsidian queue is lost", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const now = vi.spyOn(Date, "now").mockReturnValue(10000);
+    mocks.post.mockResolvedValue({
+      results: [{ citekey: "new", status: "pending-review" }],
+    });
+    await syncExistingNotesOnce();
+    now.mockReturnValue(13000);
+    await syncExistingNotesOnce();
+    await syncExistingNotesOnce();
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    zotero.HTTP.request.mockResolvedValueOnce({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [],
+        pending: [],
+      }),
+    });
+    await processReviewRequests();
+    await syncExistingNotesOnce();
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    stopAutoSync();
+    now.mockRestore();
   });
 
   it("continues searching other libraries when Zotero returns false for a missing key", async () => {

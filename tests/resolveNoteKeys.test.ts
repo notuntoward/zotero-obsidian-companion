@@ -129,54 +129,89 @@ describe("citation-key reconciliation", () => {
     });
     expect(result[0].status).toBe("error");
     expect(result[0].error).toContain("Library unavailable");
+    expect(result[0].error).toContain("stopped before applying changes");
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("saves the chosen note key and waits for attachment changes before continuing", async () => {
-    const { item, pair } = fixture();
-    const delay = (globalThis as any).Zotero.Promise.delay;
-    delay.mockImplementationOnce(async () => {
-      item.attachments = [{ itemkey: "ATT1", path: "after.pdf" }];
-    });
+  it.each(["sync", "review-sync"] as const)(
+    "saves the chosen note key and continues %s after attachments settle",
+    async (action) => {
+      const { item, pair } = fixture();
+      const delay = (globalThis as any).Zotero.Promise.delay;
+      delay.mockImplementationOnce(async () => {
+        item.attachments = [{ itemkey: "ATT1", path: "after.pdf" }];
+      });
+      mocks.post
+        .mockResolvedValueOnce({
+          results: [
+            { citekey: "zotero", status: "skipped", noteCitekey: "note" },
+          ],
+        })
+        .mockResolvedValueOnce({
+          results: [{ citekey: "note", status: "prepared", token: "token" }],
+        })
+        .mockResolvedValueOnce({
+          results: [{ citekey: "note", status: "updated" }],
+        });
+      const result = await resolveNoteKeyChoices(action, [pair], {
+        results: [
+          {
+            citekey: "zotero",
+            status: "set-zotero-key",
+            token: "verify-token",
+            noteCitekey: "note",
+            expectedZoteroKey: "zotero",
+          },
+        ],
+      });
+      expect(result[0].status).toBe("updated");
+      expect(item.setField).toHaveBeenCalledWith("citationKey", "note");
+      expect(delay).toHaveBeenCalledTimes(2);
+      expect(mocks.post.mock.calls[1][0].data[0].attachments).toEqual([
+        { itemkey: "ATT1", path: "after.pdf" },
+      ]);
+      expect(mocks.post.mock.calls[1][0].data[0].zoteroChanges).toEqual({
+        previousCitekey: "zotero",
+        attachmentMoves: [
+          { itemkey: "ATT1", from: "before.pdf", to: "after.pdf" },
+        ],
+      });
+      expect(mocks.post.mock.calls[1][0].action).toBe(action);
+      expect(mocks.post.mock.calls[2][0].data[0].zoteroChanges).toEqual(
+        mocks.post.mock.calls[1][0].data[0].zoteroChanges,
+      );
+      expect(mocks.post.mock.calls[2][0].action).toBe("apply-sync");
+    },
+  );
+
+  it("reports a partial reconciliation if the continuation fails after Zotero changes", async () => {
+    const { pair } = fixture();
     mocks.post
       .mockResolvedValueOnce({
+        results: [{ status: "skipped", noteCitekey: "note" }],
+      })
+      .mockResolvedValueOnce({
         results: [
-          { citekey: "zotero", status: "skipped", noteCitekey: "note" },
+          {
+            status: "error",
+            citekey: "note",
+            error: "Attachment is outside the vault.",
+          },
         ],
-      })
-      .mockResolvedValueOnce({
-        results: [{ citekey: "note", status: "prepared", token: "token" }],
-      })
-      .mockResolvedValueOnce({
-        results: [{ citekey: "note", status: "updated" }],
       });
-    const result = await resolveNoteKeyChoices("sync", [pair], {
+    const [result] = await resolveNoteKeyChoices("review-sync", [pair], {
       results: [
         {
           citekey: "zotero",
           status: "set-zotero-key",
-          token: "verify-token",
+          token: "token",
           noteCitekey: "note",
           expectedZoteroKey: "zotero",
         },
       ],
     });
-    expect(result[0].status).toBe("updated");
-    expect(item.setField).toHaveBeenCalledWith("citationKey", "note");
-    expect(delay).toHaveBeenCalledTimes(2);
-    expect(mocks.post.mock.calls[1][0].data[0].attachments).toEqual([
-      { itemkey: "ATT1", path: "after.pdf" },
-    ]);
-    expect(mocks.post.mock.calls[1][0].data[0].zoteroChanges).toEqual({
-      previousCitekey: "zotero",
-      attachmentMoves: [
-        { itemkey: "ATT1", from: "before.pdf", to: "after.pdf" },
-      ],
-    });
-    expect(mocks.post.mock.calls[2][0].data[0].zoteroChanges).toEqual(
-      mocks.post.mock.calls[1][0].data[0].zoteroChanges,
-    );
-    expect(mocks.post.mock.calls[2][0].action).toBe("apply-sync");
+    expect(result.error).toContain("Attachment is outside the vault.");
+    expect(result.error).toContain("reconciliation may be partial");
   });
 
   it("does not infer a move from attachments with different Zotero item keys", async () => {
@@ -330,6 +365,7 @@ describe("citation-key reconciliation", () => {
     });
     expect(result[0].status).toBe("error");
     expect(result[0].error).toContain("did not retain");
+    expect(result[0].error).toContain("may be partial");
     expect(mocks.post).toHaveBeenCalledTimes(1);
   });
 });

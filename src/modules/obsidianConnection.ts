@@ -99,7 +99,9 @@ export async function isObsidianServerReady(): Promise<boolean> {
 /**
  * Inspect the OS process table to determine if Obsidian is currently running.
  */
-export async function isObsidianProcessRunning(): Promise<boolean> {
+export async function getObsidianProcessState(): Promise<
+  "running" | "stopped" | "unknown"
+> {
   try {
     if (typeof Zotero?.Utilities?.Internal?.subprocess === "function") {
       if (Zotero.isWin) {
@@ -112,31 +114,37 @@ export async function isObsidianProcessRunning(): Promise<boolean> {
           SUBPROCESS_TIMEOUT_MS,
           "tasklist",
         );
-        return (
-          typeof output === "string" &&
-          output.toLowerCase().includes("obsidian.exe")
-        );
+        if (typeof output !== "string") return "unknown";
+        return output.toLowerCase().includes("obsidian.exe")
+          ? "running"
+          : "stopped";
       } else if (Zotero.isMac) {
         const output = await withTimeout(
           Zotero.Utilities.Internal.subprocess("pgrep", ["-x", "Obsidian"]),
           SUBPROCESS_TIMEOUT_MS,
           "pgrep",
         );
-        return typeof output === "string" && output.trim().length > 0;
+        if (typeof output !== "string") return "unknown";
+        return output.trim().length > 0 ? "running" : "stopped";
       } else {
         const output = await withTimeout(
           Zotero.Utilities.Internal.subprocess("pgrep", ["-i", "obsidian"]),
           SUBPROCESS_TIMEOUT_MS,
           "pgrep",
         );
-        return typeof output === "string" && output.trim().length > 0;
+        if (typeof output !== "string") return "unknown";
+        return output.trim().length > 0 ? "running" : "stopped";
       }
     }
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] process check error: ${e}`);
   }
 
-  return false;
+  return "unknown";
+}
+
+export async function isObsidianProcessRunning(): Promise<boolean> {
+  return (await getObsidianProcessState()) === "running";
 }
 
 /**
@@ -565,6 +573,9 @@ export async function postToObsidian(payload: any): Promise<any> {
     }
   } catch (err: any) {
     const msg = String(err?.message || err);
-    return { success: false, error: msg };
+    const status = err?.status ?? err?.xmlhttp?.status;
+    return typeof status === "number" && status > 0
+      ? { success: false, error: `HTTP ${status}: ${msg}` }
+      : { success: false, error: msg, connectionError: true };
   }
 }

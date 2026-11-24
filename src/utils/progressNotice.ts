@@ -133,21 +133,19 @@ export function resizeCompactProgressWindow(line: any): void {
   if (win) resizeWindow(win);
 }
 
-/**
- * Show a single-line, self-dismissing notice. Keeps the plugin's success/fail
- * icon and tightens the window so it hugs the text.
- */
-export function showNotice(
+type NoticeOptions = {
+  type?: "success" | "fail";
+  headline?: string;
+  timeoutMs?: number;
+};
+
+export function showDismissibleNotice(
   message: string,
-  options: {
-    type?: "success" | "fail";
-    headline?: string;
-    timeoutMs?: number;
-  } = {},
-): boolean {
+  options: NoticeOptions = {},
+): (() => void) | undefined {
   try {
     const ProgressWindow = addon?.data?.ztoolkit?.ProgressWindow;
-    if (!ProgressWindow) return false;
+    if (!ProgressWindow) return undefined;
     const pw = new ProgressWindow(
       options.headline ?? addon.data.config.addonName,
       {
@@ -161,9 +159,23 @@ export function showNotice(
     }).show(-1);
     applyCompactProgressStyle(pw.lines?.[0]);
     pw.startCloseTimer(options.timeoutMs ?? 3000);
-    return true;
+    return () => {
+      try {
+        pw.close();
+      } catch (e) {
+        Zotero.debug(`[zoteroobsidian] close notice error: ${e}`);
+      }
+    };
   } catch (e) {
     Zotero.debug(`[zoteroobsidian] showNotice error: ${e}`);
-    return false;
+    return undefined;
   }
+}
+
+/** Show a single-line, self-dismissing notice. */
+export function showNotice(
+  message: string,
+  options: NoticeOptions = {},
+): boolean {
+  return Boolean(showDismissibleNotice(message, options));
 }

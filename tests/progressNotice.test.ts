@@ -3,6 +3,7 @@ import {
   applyCompactProgressStyle,
   resizeCompactProgressWindow,
   pluginIconUrl,
+  showDismissibleNotice,
   showNotice,
 } from "../src/utils/progressNotice";
 
@@ -218,6 +219,29 @@ describe("progressNotice", () => {
       });
       expect(notice.show).toHaveBeenCalledWith(-1);
       expect(notice.startCloseTimer).toHaveBeenCalledWith(3000);
+    });
+
+    it("dismisses only the notice returned by the helper", () => {
+      const notices: any[] = [];
+      (globalThis as any).addon.data.ztoolkit.ProgressWindow = vi.fn(
+        function () {
+          const notice = {
+            createLine: vi.fn().mockReturnThis(),
+            show: vi.fn(),
+            startCloseTimer: vi.fn(),
+            close: vi.fn(),
+            lines: [{}],
+          };
+          notices.push(notice);
+          return notice;
+        },
+      );
+      const dismiss = showDismissibleNotice("Waiting", { timeoutMs: 15000 });
+      showNotice("Other");
+      expect(dismiss).toBeTypeOf("function");
+      dismiss?.();
+      expect(notices[0].close).toHaveBeenCalledOnce();
+      expect(notices[1].close).not.toHaveBeenCalled();
     });
 
     it("does nothing (and does not throw) when the toolkit is unavailable", () => {

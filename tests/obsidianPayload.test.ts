@@ -5,6 +5,13 @@ describe("attachment payloads", () => {
   beforeEach(() => {
     (globalThis as any).Zotero = {
       debug: vi.fn(),
+      Prefs: { get: vi.fn(() => "C:\\vault") },
+      Attachments: {
+        LINK_MODE_LINKED_FILE: 2,
+        LINK_MODE_IMPORTED_FILE: 0,
+        LINK_MODE_IMPORTED_URL: 1,
+        BASE_PATH_PLACEHOLDER: "attachments:",
+      },
       HTTP: {
         request: vi.fn().mockRejectedValue(new Error("BBT unavailable")),
       },
@@ -14,6 +21,8 @@ describe("attachment payloads", () => {
       Items: {
         get: vi.fn((id: number) => ({
           key: `ATT${id}`,
+          attachmentLinkMode: 0,
+          attachmentPath: "storage:file.pdf",
           getField: (name: string) =>
             name === "title" ? `Attachment ${id}` : "https://example.com",
           getFilePath: () => false,
@@ -61,6 +70,7 @@ describe("attachment payloads", () => {
         path: undefined,
         url: "https://example.com",
         isFile: true,
+        mode: "stored",
       },
       {
         itemkey: "ATT2",
@@ -68,10 +78,55 @@ describe("attachment payloads", () => {
         path: undefined,
         url: "https://example.com",
         isFile: false,
+        mode: "url",
       },
     ]);
     expect(result.libraryName).toBe("My Zotero Library");
+    expect(result.linkedAttachmentBaseDirectory).toBe("C:\\vault");
+    expect(result.linkedAttachmentBaseDirectoryValidated).toBe(false);
     expect(result.citekey).toBe("key");
     expect(result.bibliography).toBe("Citation");
+  });
+
+  it("reports relative linked attachment mode without treating stored files as linked", async () => {
+    const z = (globalThis as any).Zotero;
+    z.Items.get = vi.fn((id: number) => ({
+      key: `ATT${id}`,
+      attachmentLinkMode: id === 1 ? 2 : 0,
+      attachmentPath: id === 1 ? "attachments:paper.pdf" : "storage:paper.pdf",
+      getField: () => "",
+      getFilePath: () => false,
+      isFileAttachment: () => true,
+    }));
+    const { getSyncPayload } = await import("../src/modules/obsidianPayload");
+    const result = await getSyncPayload({
+      id: 1,
+      key: "ABC",
+      libraryID: 1,
+      getField: () => "key",
+      getAttachments: () => [1, 2],
+    });
+    expect(result.attachments?.[0]).toMatchObject({
+      mode: "linked",
+      usesRelativePath: true,
+    });
+    expect(result.attachments?.[1]).toMatchObject({ mode: "stored" });
+    expect(result.attachments?.[1]).not.toHaveProperty("usesRelativePath");
+    expect(result.linkedAttachmentBaseDirectory).toBe("C:\\vault");
+  });
+
+  it("does not treat an unset base directory as validated", async () => {
+    const z = (globalThis as any).Zotero;
+    z.Prefs.get.mockReturnValue("");
+    const { getSyncPayload } = await import("../src/modules/obsidianPayload");
+    const result = await getSyncPayload({
+      id: 1,
+      key: "ABC",
+      libraryID: 1,
+      getField: () => "key",
+      getAttachments: () => [],
+    });
+    expect(result.linkedAttachmentBaseDirectory).toBe("");
+    expect(result.linkedAttachmentBaseDirectoryValidated).toBe(false);
   });
 });

@@ -28,7 +28,7 @@ interface Result {
 }
 
 export async function resolveNoteKeyChoices(
-  action: "sync" | "update",
+  action: "sync" | "update" | "review-sync",
   pairs: Pair[],
   response: { results?: Result[]; error?: string },
 ): Promise<Result[]> {
@@ -48,6 +48,7 @@ export async function resolveNoteKeyChoices(
     const { item, payload } = pairs[index];
     let planCheck = payload.citationKeyCheck;
     let zoteroChanges: ZoteroItemPayload["zoteroChanges"];
+    let mayHaveChanged = false;
     try {
       if (choice.status === "set-zotero-key") {
         const key = choice.noteCitekey;
@@ -71,7 +72,7 @@ export async function resolveNoteKeyChoices(
           );
         }
         const current =
-          action === "sync"
+          action !== "update"
             ? await getSyncPayload(item)
             : await getItemPayload(item);
         current.citationKeyCheck = await checkCitationKey(item, key);
@@ -121,6 +122,7 @@ export async function resolveNoteKeyChoices(
         ) {
           throw new Error("Zotero attachments changed before saving; retry.");
         }
+        mayHaveChanged = true;
         item.setField("citationKey", key);
         await item.saveTx({ skipDateModifiedUpdate: true });
         await item.reload();
@@ -155,7 +157,7 @@ export async function resolveNoteKeyChoices(
           );
         }
         const fresh =
-          action === "sync"
+          action !== "update"
             ? await getSyncPayload(item)
             : await getItemPayload(item);
         if (
@@ -214,7 +216,7 @@ export async function resolveNoteKeyChoices(
           ? await enumerateZoteroAttachmentPaths()
           : undefined;
         const fresh =
-          action === "sync"
+          action !== "update"
             ? await getSyncPayload(item)
             : await getItemPayload(item);
         if (
@@ -227,6 +229,7 @@ export async function resolveNoteKeyChoices(
         }
         if (planCheck) fresh.citationKeyCheck = planCheck;
         if (zoteroChanges) fresh.zoteroChanges = zoteroChanges;
+        mayHaveChanged = true;
         const applied = await postToObsidian({
           action: "apply-sync",
           token: choice.token,
@@ -236,9 +239,13 @@ export async function resolveNoteKeyChoices(
         if (
           !Array.isArray(applied?.results) ||
           applied.results.length !== 1 ||
-          !["updated", "skipped", "missing", "error"].includes(
-            applied.results[0].status,
-          )
+          ![
+            "updated",
+            "skipped",
+            "missing",
+            "error",
+            "pending-review",
+          ].includes(applied.results[0].status)
         ) {
           throw new Error(
             "Obsidian did not complete the prepared update; check the note and retry.",
@@ -246,12 +253,18 @@ export async function resolveNoteKeyChoices(
         }
         choice = applied.results[0];
       }
+      if (mayHaveChanged && choice.status === "error") {
+        choice = {
+          ...choice,
+          error: `${choice.error || "Reconciliation failed."} Check both apps before retrying; reconciliation may be partial.`,
+        };
+      }
       results[index] = choice;
     } catch (error) {
       results[index] = {
         citekey: payload.citekey,
         status: "error",
-        error: `Zotero key reconciliation may be partial; review both apps and retry: ${error instanceof Error ? error.message : String(error)}`,
+        error: `${mayHaveChanged ? "Check both apps before retrying; reconciliation may be partial" : "Resolve the problem and retry; reconciliation stopped before applying changes"}: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }

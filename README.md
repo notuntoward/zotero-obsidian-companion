@@ -36,7 +36,11 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 - **Regen Citation Key:** Uses Better BibTeX to propose a citation key for the selected item(s), which you can edit before saving.
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
 
-Citation-key and attachment changes are also reconciled automatically when both plugins are running. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
+Citation-key and attachment changes are also reconciled automatically when both plugins are running. Reviews wait in Obsidian's **Zotero reviews** status-bar entry until selected; Zotero must be running to prepare a review. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
+
+On startup and when Zotero's Linked Attachment Base Directory changes, the companion checks it against the open Obsidian vault and retries if Obsidian is unavailable. The connection warning closes when the Saver server becomes available. The base directory resolves relative linked-file paths; it does not apply to stored attachments or move files. A directory outside the vault does not necessarily mean every linked file is outside it.
+
+For eligible existing attachment reconciliation reviews, Saver can request a confirmed bulk move into the validated base directory. The companion rechecks the Zotero item and files before moving them, changes stored attachments to linked files where needed, and preserves any losing conflicting copy as a backup. Zotero group-library attachments are not converted to linked files.
 
 ## Settings Configuration
 

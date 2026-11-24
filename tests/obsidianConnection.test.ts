@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   isObsidianServerReady,
   isObsidianProcessRunning,
+  getObsidianProcessState,
   launchObsidian,
   ensureObsidianConnection,
   postToObsidian,
@@ -151,6 +152,13 @@ describe("obsidianConnection", () => {
         "pgrep",
         ["-i", "obsidian"],
       );
+    });
+
+    it("reports an unknown process state when the process check fails", async () => {
+      mockZotero.Utilities.Internal.subprocess.mockRejectedValueOnce(
+        new Error("unavailable"),
+      );
+      expect(await getObsidianProcessState()).toBe("unknown");
     });
 
     it("returns false when subprocess throws an error", async () => {
@@ -362,6 +370,24 @@ describe("obsidianConnection", () => {
 
       const res = await postToObsidian({ action: "create" });
       expect(res).toEqual({ success: false, error: "HTTP 400: Invalid data" });
+    });
+  });
+  it("distinguishes local connection failures from HTTP errors", async () => {
+    mockZotero.HTTP.request.mockRejectedValueOnce(
+      new Error("Check your Internet connection"),
+    );
+    expect(
+      await postToObsidian({ action: "check-attachment-base" }),
+    ).toMatchObject({
+      success: false,
+      connectionError: true,
+    });
+    mockZotero.HTTP.request.mockRejectedValueOnce(
+      Object.assign(new Error("Bad Request"), { status: 400 }),
+    );
+    expect(await postToObsidian({ action: "check-attachment-base" })).toEqual({
+      success: false,
+      error: "HTTP 400: Bad Request",
     });
   });
 });

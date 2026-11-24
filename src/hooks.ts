@@ -6,6 +6,10 @@ import { createZToolkit } from "./utils/ztoolkit";
 import { registerHotkeys } from "./modules/hotkeys";
 import { showNotice } from "./utils/progressNotice";
 import { startAutoSync, stopAutoSync } from "./modules/autoSync";
+import {
+  startAttachmentBaseMonitor,
+  stopAttachmentBaseMonitor,
+} from "./modules/attachmentBaseMonitor";
 
 async function onStartup() {
   await Promise.all([
@@ -31,6 +35,7 @@ async function onStartup() {
   // main windows and removes the menu automatically on shutdown.
   registerItemMenu();
 
+  startAttachmentBaseMonitor();
   startAutoSync();
   try {
     await syncObsidianTags(addon);
@@ -57,6 +62,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 function onShutdown(): void {
+  stopAttachmentBaseMonitor();
   stopAutoSync();
   ztoolkit.unregisterAll();
   addon.data.alive = false;
