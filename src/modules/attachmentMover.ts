@@ -37,6 +37,7 @@ export interface AttachmentMoveResult {
   trashed?: boolean;
   preservedSource?: boolean;
   copied?: boolean;
+  referenceCheckFailed?: boolean;
 }
 
 export type AttachmentConflictStrategy = "newest" | "zotero" | "skip";
@@ -165,6 +166,7 @@ async function copySharedAttachment(
   attachment: any,
   candidate: AttachmentMoveOperation,
   strategy: AttachmentConflictStrategy,
+  referencesUnknown: boolean,
 ): Promise<AttachmentMoveResult | undefined> {
   const source = await attachment.getFilePathAsync();
   if (
@@ -196,6 +198,10 @@ async function copySharedAttachment(
   let copySource = true;
   if (destinationExists) {
     same = await identicalFiles(source, destination);
+    if (referencesUnknown && !same)
+      throw new Error(
+        `Zotero could not check references and ${destination} differs from ${candidate.basename}; no files were changed.`,
+      );
     const destinationInfo = await IOUtils.stat(destination);
     destinationEmpty = !same && destinationInfo.size === 0;
     if (!same && !destinationEmpty) {
@@ -207,6 +213,10 @@ async function copySharedAttachment(
           (sourceInfo.lastModified ?? 0) >= (destinationInfo.lastModified ?? 0);
     }
   }
+  if (candidate.resolution === "trash" && (!destinationExists || !same))
+    throw new Error(
+      `${candidate.basename} no longer matches the kept file ${destination}; the original was not changed.`,
+    );
   if (candidate.resolution === "keep-destination" && !same)
     throw new Error(
       destination +
@@ -248,17 +258,19 @@ async function copySharedAttachment(
     };
   } catch (error) {
     const rollbackErrors: string[] = [];
+    let cloneRetained = false;
     if (clone?.id && Zotero.Items.get(clone.id)) {
       try {
         await clone.eraseTx();
       } catch (rollbackError) {
+        cloneRetained = true;
         rollbackErrors.push(
           "could not remove the replacement Zotero item: " +
             describeError(rollbackError),
         );
       }
     }
-    if (destinationCopied) {
+    if (destinationCopied && !cloneRetained) {
       try {
         if (await IOUtils.exists(destination))
           await IOUtils.remove(destination);
@@ -271,7 +283,7 @@ async function copySharedAttachment(
         );
       }
     }
-    if (destinationBackedUp && backup) {
+    if (destinationBackedUp && backup && !cloneRetained) {
       try {
         if (!(await IOUtils.exists(backup)))
           throw new Error("the backup file is missing");
@@ -310,6 +322,7 @@ async function moveOne(
   candidate: AttachmentMoveOperation,
   strategy: AttachmentConflictStrategy,
   preserveSource = false,
+  referencesUnknown = false,
 ): Promise<AttachmentMoveResult | undefined> {
   const source = await attachment.getFilePathAsync();
   if (
@@ -322,7 +335,12 @@ async function moveOne(
       `Attachment ${candidate.basename} changed since review; no file was moved.`,
     );
   if (preserveSource)
-    return copySharedAttachment(attachment, candidate, strategy);
+    return copySharedAttachment(
+      attachment,
+      candidate,
+      strategy,
+      referencesUnknown,
+    );
   const actualDestination = candidate.destinationPath;
   const destinationExists = await IOUtils.exists(actualDestination);
   let same = false;
@@ -557,12 +575,14 @@ export async function moveReviewedAttachments(
       "The Zotero attachment list changed; no attachments were moved.",
     );
   let zoteroPaths: string[] = [];
+  let referenceCheckFailed = false;
   if (request.attachments.some((entry) => entry.resolution !== "trash")) {
     try {
       zoteroPaths = await enumerateZoteroAttachmentPaths();
     } catch (error) {
-      throw new Error(
-        "Could not verify Zotero attachment references; no files were moved. " +
+      referenceCheckFailed = true;
+      Zotero.logError(
+        "Could not verify Zotero attachment references; originals will be preserved. " +
           describeError(error),
       );
     }
@@ -624,8 +644,12 @@ export async function moveReviewedAttachments(
       throw new Error(
         `Attachment destination changed since review; no files were moved: ${destination}`,
       );
-    if (candidate.resolution === "trash") continue;
     const same = await identicalFiles(source, destination);
+    if (referenceCheckFailed && !same)
+      throw new Error(
+        `Zotero could not check references and ${destination} differs from ${candidate.basename}; no files were changed.`,
+      );
+    if (candidate.resolution === "trash") continue;
     if (
       (candidate.resolution === "keep-destination" && !same) ||
       (candidate.resolution === "newest" &&
@@ -672,18 +696,25 @@ export async function moveReviewedAttachments(
           `Zotero attachment ${candidate.itemkey} is unavailable.`,
         );
       const result =
-        candidate.resolution === "trash"
+        candidate.resolution === "trash" && !referenceCheckFailed
           ? await trashDuplicate(attachment, candidate)
           : await moveOne(
               parent,
               attachment,
               candidate,
               strategy,
-              zoteroPaths.filter((filePath) =>
-                samePath(filePath, candidate.sourcePath),
-              ).length > 1,
+              referenceCheckFailed ||
+                zoteroPaths.filter((filePath) =>
+                  samePath(filePath, candidate.sourcePath),
+                ).length > 1,
+              referenceCheckFailed,
             );
-      if (result) moved.push(result);
+      if (result)
+        moved.push(
+          referenceCheckFailed
+            ? { ...result, referenceCheckFailed: true }
+            : result,
+        );
     }
     for (const filePath of request.linkNoteFiles) {
       const item = await Zotero.Attachments.linkFromFile({
@@ -699,7 +730,9 @@ export async function moveReviewedAttachments(
       ...moved.map((result) =>
         result.trashed
           ? `trashed ${PathUtils.filename(result.from)}`
-          : `moved ${PathUtils.filename(result.to)}`,
+          : result.preservedSource
+            ? `linked ${PathUtils.filename(result.to)} while preserving the original`
+            : `moved ${PathUtils.filename(result.to)}`,
       ),
       ...linked.map((result) => `linked ${PathUtils.filename(result.path)}`),
     ];

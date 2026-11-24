@@ -1,5 +1,5 @@
-import { getSyncPayload } from "./obsidianPayload";
-import type { ZoteroItemPayload } from "./obsidianPayload";
+import { getAttachments, getSyncPayload } from "./obsidianPayload";
+import type { ZoteroAttachment, ZoteroItemPayload } from "./obsidianPayload";
 import { isObsidianServerReady, postToObsidian } from "./obsidianConnection";
 import { resolveNoteKeyChoices } from "./resolveNoteKeys";
 import { addCitationKeyCheck, getNoteIdentities } from "./citationKeyCheck";
@@ -41,6 +41,8 @@ const inFlightReviews = new Set<string>();
 const inFlightSyncs = new Set<string>();
 const warnedUncertain = new Set<string>();
 const uncertainReportErrors = new Map<string, string>();
+const uncertainTitleErrors = new Map<string, string>();
+const uncertainAttachmentErrors = new Map<string, string>();
 const uncertainReportWarning =
   "Could not report interrupted reviews to Obsidian. The affected items remain blocked; keep Zotero open and reconnect to Obsidian.";
 const acknowledgementErrors = new Map<string, string>();
@@ -80,6 +82,8 @@ function forgetUncertain(entry: JournalEntry): void {
   const key = reviewIdentity(entry);
   warnedUncertain.delete(key);
   uncertainReportErrors.delete(key);
+  uncertainTitleErrors.delete(key);
+  uncertainAttachmentErrors.delete(key);
   if (!uncertainReportErrors.size && lastWarning === uncertainReportWarning)
     lastWarning = "";
   acknowledgementErrors.delete(key);
@@ -108,12 +112,72 @@ async function reportUncertain(
     Zotero.logError(`[Obsidian sync] ${uncertainMessage(entry)}`);
     warnedUncertain.add(key);
   }
+  let title: string | undefined;
+  let attachments: ZoteroAttachment[] | undefined;
+  let attachmentCheckError: string | undefined;
+  try {
+    const libraries = Zotero.Libraries.getAll().filter(
+      (library: any) =>
+        (library.libraryType === "user" || library.libraryType === "group") &&
+        Zotero.URI.getLibraryURI(library.libraryID) === entry.libraryURI,
+    );
+    if (libraries.length === 1) {
+      const item = await Zotero.Items.getByLibraryAndKeyAsync(
+        libraries[0].libraryID,
+        entry.itemkey,
+      );
+      if (item && !item.deleted && item.isRegularItem()) {
+        if (typeof item.getField === "function") {
+          const value = item.getField("title");
+          if (typeof value === "string" && value.trim()) title = value.trim();
+        }
+        if (entry.operation === "attachment-move") {
+          try {
+            attachments = getAttachments(item).filter(
+              (attachment) => attachment.isFile,
+            );
+            uncertainAttachmentErrors.delete(key);
+          } catch (error) {
+            attachmentCheckError =
+              error instanceof Error ? error.message : String(error);
+            if (uncertainAttachmentErrors.get(key) !== attachmentCheckError) {
+              Zotero.logError(
+                `[Obsidian sync] Could not inspect attachments for ${entry.itemkey}: ${attachmentCheckError}`,
+              );
+              uncertainAttachmentErrors.set(key, attachmentCheckError);
+            }
+          }
+        }
+      } else if (entry.operation === "attachment-move") {
+        attachmentCheckError = "The Zotero item is missing or unavailable.";
+      }
+    } else if (entry.operation === "attachment-move") {
+      attachmentCheckError = "The Zotero library could not be identified.";
+    }
+    uncertainTitleErrors.delete(key);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (entry.operation === "attachment-move") attachmentCheckError = message;
+    if (uncertainTitleErrors.get(key) !== message) {
+      Zotero.logError(
+        `[Obsidian sync] Could not find title for uncertain review ${entry.itemkey}: ${message}`,
+      );
+      uncertainTitleErrors.set(key, message);
+    }
+  }
   try {
     const response = await postReview({
       action: "review-uncertain",
       itemkey: entry.itemkey,
       libraryURI: entry.libraryURI,
+      operation: entry.operation,
+      ...(title ? { title } : {}),
       ...(entry.error ? { error: entry.error } : {}),
+      ...(attachments ? { attachments } : {}),
+      ...(attachmentCheckError ? { attachmentCheckError } : {}),
+      ...(entry.attachmentPaths
+        ? { attachmentPaths: entry.attachmentPaths }
+        : {}),
     });
     if (!response?.success)
       throw new Error(
@@ -591,6 +655,18 @@ export async function processReviewRequests(): Promise<boolean> {
     libraryURI: request.libraryURI,
     operation: request.operation || "review-sync",
     state: "in-flight",
+    ...(request.operation === "attachment-move" &&
+    isAttachmentMoveRequest(request.attachmentMove)
+      ? {
+          attachmentPaths: request.attachmentMove.attachments.map(
+            (attachment: AttachmentMoveRequest["attachments"][number]) => ({
+              itemkey: attachment.itemkey,
+              sourcePath: attachment.sourcePath,
+              destinationPath: attachment.destinationPath,
+            }),
+          ),
+        }
+      : {}),
   };
   writeReviewJournal([...journal, entry]);
   const key = reviewIdentity(entry);
@@ -911,6 +987,8 @@ export function stopAutoSync(): void {
   observed.clear();
   warnedUncertain.clear();
   uncertainReportErrors.clear();
+  uncertainTitleErrors.clear();
+  uncertainAttachmentErrors.clear();
   acknowledgementErrors.clear();
   lastWarning = "";
   lastReport = "";

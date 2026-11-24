@@ -4,6 +4,11 @@ export interface JournalEntry {
   operation: string;
   state: "in-flight" | "ack-pending";
   error?: string;
+  attachmentPaths?: Array<{
+    itemkey: string;
+    sourcePath: string;
+    destinationPath: string;
+  }>;
 }
 
 declare const Zotero: any;
@@ -45,6 +50,17 @@ export function readReviewJournal(): JournalEntry[] {
         !entry.libraryURI ||
         typeof entry.operation !== "string" ||
         (entry.error !== undefined && typeof entry.error !== "string") ||
+        (entry.attachmentPaths !== undefined &&
+          (!Array.isArray(entry.attachmentPaths) ||
+            entry.attachmentPaths.some((path: unknown) => {
+              if (!path || typeof path !== "object") return true;
+              const candidate = path as Record<string, unknown>;
+              return (
+                typeof candidate.itemkey !== "string" ||
+                typeof candidate.sourcePath !== "string" ||
+                typeof candidate.destinationPath !== "string"
+              );
+            }))) ||
         !["in-flight", "ack-pending"].includes(entry.state),
     ) ||
     new Set(

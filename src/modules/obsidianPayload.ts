@@ -254,7 +254,7 @@ function getFieldSafe(item: any, fieldName: string): string | undefined {
   }
 }
 
-function getAttachments(item: any): ZoteroAttachment[] {
+export function getAttachments(item: any): ZoteroAttachment[] {
   return item.getAttachments().map((id: number) => {
     const att = Zotero.Items.get(id);
     if (!att) throw new Error(`Zotero attachment ${id} could not be loaded.`);

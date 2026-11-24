@@ -65,6 +65,7 @@ The Zotero side posts to `http://127.0.0.1:27124/lit-note`:
 - `{ action: "sync", data: ZoteroItemPayload[] }` for automatic reconciliation
 - `{ action: "update", data: ZoteroItemPayload[] }` for previewed metadata updates
 - `{ action: "apply-sync" | "validate-zotero-key", token, data: [ZoteroItemPayload] }` to revalidate an approved plan
+- `{ action: "review-uncertain", itemkey, libraryURI, operation, title?, attachments?, attachmentCheckError?, attachmentPaths? }` reports an unknown outcome, current attachment details, and any source/destination paths saved before the move; older journal entries may lack those paths
 
 Obsidian replies with `{ success, results: [{ citekey, status, error? }] }`.
 In addition to `created | overwritten | opened | updated | skipped | missing | error`,

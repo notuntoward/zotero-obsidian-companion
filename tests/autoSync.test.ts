@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   ready: vi.fn(),
   post: vi.fn(),
   payload: vi.fn(),
+  attachments: vi.fn(),
   notice: vi.fn(),
   addCheck: vi.fn(),
   report: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("../src/modules/obsidianConnection", () => ({
 }));
 vi.mock("../src/modules/obsidianPayload", () => ({
   getSyncPayload: mocks.payload,
+  getAttachments: mocks.attachments,
 }));
 vi.mock("../src/modules/citationKeyCheck", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/modules/citationKeyCheck")>()),
@@ -42,6 +44,8 @@ import {
 describe("automatic note reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.attachments.mockReset();
+    mocks.attachments.mockReturnValue([]);
     mocks.moveAttachments.mockReset();
     mocks.addCheck.mockReset();
     mocks.report.mockReset();
@@ -219,6 +223,15 @@ describe("automatic note reconciliation", () => {
           error: "attachment changed since review",
           itemkey: "ABC",
           libraryURI: "library",
+          operation: "attachment-move",
+          attachments: [],
+          attachmentPaths: [
+            {
+              itemkey: "ATT1",
+              sourcePath: "C:\\old\\paper.pdf",
+              destinationPath: "C:\\vault\\paper.pdf",
+            },
+          ],
         });
         expect(zotero.logError).toHaveBeenCalledWith(
           expect.stringContaining("attachment changed since review"),
@@ -235,6 +248,15 @@ describe("automatic note reconciliation", () => {
           error: "attachment changed since review",
           itemkey: "ABC",
           libraryURI: "library",
+          operation: "attachment-move",
+          attachments: [],
+          attachmentPaths: [
+            {
+              itemkey: "ATT1",
+              sourcePath: "C:\\old\\paper.pdf",
+              destinationPath: "C:\\vault\\paper.pdf",
+            },
+          ],
         });
         expect(mocks.moveAttachments).toHaveBeenCalledOnce();
       } else {
@@ -944,6 +966,7 @@ describe("automatic note reconciliation", () => {
       error: "Request timed out",
       itemkey: "ABC",
       libraryURI: "library",
+      operation: "review-sync",
     });
     expect(
       mocks.post.mock.calls.some(
@@ -1109,6 +1132,141 @@ describe("automatic note reconciliation", () => {
     ).toEqual([]);
   });
 
+  it("reports the recorded action and Zotero title without retrying the update", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const entries = [
+      {
+        itemkey: "ABC",
+        libraryURI: "library",
+        operation: "attachment-move",
+        state: "in-flight",
+      },
+    ];
+    zotero.Prefs.set("extensions.test.reviewJournal", JSON.stringify(entries));
+    zotero.Items.getByLibraryAndKeyAsync.mockResolvedValue({
+      isRegularItem: () => true,
+      getField: (field: string) => (field === "title" ? "A useful paper" : ""),
+    });
+    mocks.attachments.mockReturnValue([
+      {
+        itemkey: "A",
+        isFile: true,
+        mode: "stored",
+        path: "C:\\storage\\a.pdf",
+      },
+      { itemkey: "B", isFile: true, mode: "linked", path: "C:\\vault\\b.pdf" },
+      { itemkey: "URL", isFile: false, mode: "url" },
+    ]);
+    zotero.HTTP.request.mockResolvedValue({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [],
+        pending: [],
+      }),
+    });
+    mocks.post.mockResolvedValue({ success: true });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "review-uncertain",
+      itemkey: "ABC",
+      libraryURI: "library",
+      operation: "attachment-move",
+      title: "A useful paper",
+      attachments: [
+        {
+          itemkey: "A",
+          isFile: true,
+          mode: "stored",
+          path: "C:\\storage\\a.pdf",
+        },
+        {
+          itemkey: "B",
+          isFile: true,
+          mode: "linked",
+          path: "C:\\vault\\b.pdf",
+        },
+      ],
+    });
+    expect(mocks.moveAttachments).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+    ).toEqual(entries);
+  });
+
+  it("reports attachment inspection errors without retrying or clearing the review", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const entries = [
+      {
+        itemkey: "ABC",
+        libraryURI: "library",
+        operation: "attachment-move",
+        state: "in-flight",
+      },
+    ];
+    zotero.Prefs.set("extensions.test.reviewJournal", JSON.stringify(entries));
+    mocks.attachments.mockImplementation(() => {
+      throw new Error("attachment list unavailable");
+    });
+    zotero.HTTP.request.mockResolvedValue({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [],
+        pending: [],
+      }),
+    });
+    mocks.post.mockResolvedValue({ success: true });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "review-uncertain",
+        itemkey: "ABC",
+        attachmentCheckError: "attachment list unavailable",
+      }),
+    );
+    expect(mocks.moveAttachments).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+    ).toEqual(entries);
+  });
+
+  it("still reports an uncertain action when its title lookup fails", async () => {
+    const zotero = (globalThis as any).Zotero;
+    const entries = [
+      {
+        itemkey: "ABC",
+        libraryURI: "library",
+        operation: "attachment-move",
+        state: "in-flight",
+      },
+    ];
+    zotero.Prefs.set("extensions.test.reviewJournal", JSON.stringify(entries));
+    zotero.Items.getByLibraryAndKeyAsync.mockRejectedValue(
+      new Error("Title unavailable"),
+    );
+    zotero.HTTP.request.mockResolvedValue({
+      responseText: JSON.stringify({
+        success: true,
+        requests: [],
+        pending: [],
+      }),
+    });
+    mocks.post.mockResolvedValue({ success: true });
+    await processReviewRequests();
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "review-uncertain",
+      itemkey: "ABC",
+      libraryURI: "library",
+      operation: "attachment-move",
+      attachmentCheckError: "Title unavailable",
+    });
+    expect(zotero.logError).toHaveBeenCalledWith(
+      expect.stringContaining("Title unavailable"),
+    );
+    expect(
+      JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+    ).toEqual(entries);
+  });
+
   it("does not clear an uncertain journal when Saver has lost its pending queue", async () => {
     const zotero = (globalThis as any).Zotero;
     const saved = [
@@ -1136,6 +1294,7 @@ describe("automatic note reconciliation", () => {
       action: "review-uncertain",
       itemkey: "ABC",
       libraryURI: "library",
+      operation: "review-sync",
     });
   });
 
