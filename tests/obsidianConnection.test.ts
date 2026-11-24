@@ -361,6 +361,57 @@ describe("obsidianConnection", () => {
       );
     });
 
+    it.each([
+      ["review-sync", 0],
+      ["bulk-review-sync", 120000],
+      ["apply-sync", 120000],
+    ])(
+      "uses the correct timeout for %s and never automatically retries POSTs",
+      async (action, timeout) => {
+        mockZotero.HTTP.request.mockResolvedValueOnce({
+          status: 200,
+          responseText: "{}",
+        });
+        await postToObsidian({ action });
+        expect(mockZotero.HTTP.request).toHaveBeenCalledWith(
+          "POST",
+          expect.any(String),
+          expect.objectContaining({ timeout, errorDelayMax: 0 }),
+        );
+      },
+    );
+
+    it("marks server failures and malformed responses as unknown outcomes", async () => {
+      mockZotero.HTTP.request.mockResolvedValueOnce({
+        status: 500,
+        statusText: "Server Error",
+        responseText: "",
+      });
+      expect(await postToObsidian({ action: "apply-sync" })).toMatchObject({
+        outcomeUnknown: true,
+      });
+      mockZotero.HTTP.request.mockResolvedValueOnce({
+        status: 200,
+        responseText: "invalid",
+      });
+      expect(await postToObsidian({ action: "apply-sync" })).toMatchObject({
+        outcomeUnknown: true,
+      });
+    });
+
+    it("does not retry a mutating POST rejected with HTTP 500", async () => {
+      mockZotero.HTTP.request.mockRejectedValueOnce(
+        Object.assign(new Error("server failed"), { status: 500 }),
+      );
+      expect(await postToObsidian({ action: "apply-sync" })).toMatchObject({
+        outcomeUnknown: true,
+      });
+      expect(mockZotero.HTTP.request).toHaveBeenCalledOnce();
+      expect(mockZotero.HTTP.request.mock.calls[0][2]).toMatchObject({
+        errorDelayMax: 0,
+      });
+    });
+
     it("handles HTTP error status codes", async () => {
       mockZotero.HTTP.request.mockResolvedValueOnce({
         status: 400,

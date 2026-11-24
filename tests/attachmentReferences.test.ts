@@ -10,6 +10,7 @@ function fileAttachment(
     key,
     deleted,
     isFileAttachment: () => true,
+    getFilePath: vi.fn(() => filePath),
     getFilePathAsync: vi.fn(async () => filePath),
     getAnnotations: vi.fn(() => {
       throw new Error("annotations must not be read");
@@ -65,6 +66,18 @@ describe("Zotero attachment-path enumeration", () => {
     expect(trashedChild.hasEmbeddedAnnotations).not.toHaveBeenCalled();
     expect(groupChild.getAnnotations).not.toHaveBeenCalled();
     expect(groupChild.hasEmbeddedAnnotations).not.toHaveBeenCalled();
+  });
+
+  it("includes a recorded path even when its attachment file is missing", async () => {
+    const missingFile = fileAttachment("MISSING", "C:\\vault\\missing.pdf");
+    missingFile.getFilePathAsync.mockResolvedValue(false);
+    const zotero = (globalThis as any).Zotero;
+    zotero.Items.getAll.mockResolvedValueOnce([missingFile]);
+
+    await expect(enumerateZoteroAttachmentPaths()).resolves.toEqual([
+      "C:\\vault\\missing.pdf",
+    ]);
+    expect(missingFile.getFilePathAsync).not.toHaveBeenCalled();
   });
 
   it("fails closed when a library cannot be enumerated or a path is missing", async () => {

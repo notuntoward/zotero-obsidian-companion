@@ -1,3 +1,5 @@
+import { enumerateZoteroAttachmentPaths } from "./attachmentReferences";
+
 export interface AttachmentMoveOperation {
   itemkey: string;
   mode: "linked" | "stored";
@@ -6,14 +8,16 @@ export interface AttachmentMoveOperation {
   destinationPath: string;
   /**
    * move: put the file at destinationPath in the base directory (conflicts follow the strategy).
-   * newest: destinationPath is the note's same-named file; keep the newest non-empty copy.
+   * newest: destinationPath is the note's file with the same extension; keep the newest non-empty copy.
    * keep-destination: link to the identical file at destinationPath.
    * trash: a duplicate of the kept file at destinationPath; move it to Zotero's trash.
    */
   resolution: "move" | "newest" | "keep-destination" | "trash";
   conflict: boolean;
   identical: boolean;
+  /** Milliseconds since the epoch at review time. */
   sourceMtime: number;
+  /** Absent when the destination did not exist at review time. */
   destinationMtime?: number;
 }
 
@@ -31,6 +35,8 @@ export interface AttachmentMoveResult {
   oldKey?: string;
   newKey?: string;
   trashed?: boolean;
+  preservedSource?: boolean;
+  copied?: boolean;
 }
 
 export type AttachmentConflictStrategy = "newest" | "zotero" | "skip";
@@ -50,6 +56,37 @@ function samePath(first: string, second: string): boolean {
   return normalize(first) === normalize(second);
 }
 
+function safeBasename(name: string): boolean {
+  return (
+    !!name &&
+    name !== "." &&
+    name !== ".." &&
+    !/[\\/<>:"|?*]/.test(name) &&
+    !Array.from(name).some((char) => char.charCodeAt(0) < 32) &&
+    !/[. ]$/.test(name) &&
+    !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)
+  );
+}
+
+function sameExtension(first: string, second: string): boolean {
+  const extension = (name: string) => {
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot).toLocaleLowerCase() : "";
+  };
+  return extension(first) === extension(second);
+}
+
+// IOUtils reports integer milliseconds, while review snapshots may be fractional.
+function matchesMtime(actual: unknown, reviewed: unknown): boolean {
+  return (
+    typeof actual === "number" &&
+    Number.isFinite(actual) &&
+    typeof reviewed === "number" &&
+    Number.isFinite(reviewed) &&
+    Math.trunc(actual) === Math.trunc(reviewed)
+  );
+}
+
 async function uniqueBackup(path: string): Promise<string> {
   let index = 1;
   let candidate = `${path}.perplexity-saver-backup`;
@@ -58,11 +95,14 @@ async function uniqueBackup(path: string): Promise<string> {
   return candidate;
 }
 
-async function moveFile(source: string, destination: string): Promise<void> {
+async function copyFileSafely(
+  source: string,
+  destination: string,
+): Promise<void> {
   let index = 1;
-  let temporary = `${destination}.perplexity-saver-transfer`;
+  let temporary = destination + ".perplexity-saver-transfer";
   while (await IOUtils.exists(temporary))
-    temporary = `${destination}.perplexity-saver-transfer-${index++}`;
+    temporary = destination + ".perplexity-saver-transfer-" + index++;
   const sourceInfo = await IOUtils.stat(source);
   let temporaryCreated = false;
   try {
@@ -70,25 +110,14 @@ async function moveFile(source: string, destination: string): Promise<void> {
     temporaryCreated = true;
     if (!(await identicalFiles(source, temporary)))
       throw new Error(
-        `Could not verify the copied attachment ${PathUtils.filename(source)}.`,
+        "Could not verify the copied attachment " +
+          PathUtils.filename(source) +
+          ".",
       );
     if (sourceInfo.lastModified !== undefined)
       await IOUtils.setModificationTime(temporary, sourceInfo.lastModified);
     await IOUtils.move(temporary, destination, { noOverwrite: true });
-    try {
-      await IOUtils.remove(source);
-    } catch (error) {
-      try {
-        await IOUtils.remove(destination);
-      } catch (cleanupError) {
-        throw new Error(
-          `Could not remove the original attachment ${source} or roll back its copy at ${destination}. ${describeError(cleanupError)}`,
-        );
-      }
-      throw new Error(
-        `Could not remove the original attachment ${source}. ${describeError(error)}`,
-      );
-    }
+    temporaryCreated = false;
   } catch (error) {
     if (temporaryCreated && (await IOUtils.exists(temporary)))
       await IOUtils.remove(temporary);
@@ -96,6 +125,173 @@ async function moveFile(source: string, destination: string): Promise<void> {
   }
 }
 
+async function moveFile(source: string, destination: string): Promise<void> {
+  await copyFileSafely(source, destination);
+  try {
+    await IOUtils.remove(source);
+  } catch (error) {
+    try {
+      await IOUtils.remove(destination);
+    } catch (cleanupError) {
+      throw new Error(
+        "Could not remove the original attachment " +
+          source +
+          " or roll back its copy at " +
+          destination +
+          ". " +
+          describeError(cleanupError),
+      );
+    }
+    throw new Error(
+      "Could not remove the original attachment " +
+        source +
+        ". " +
+        describeError(error),
+    );
+  }
+}
+
+function cloneLinkedAttachment(attachment: any, destination: string): any {
+  const clone = attachment.clone(attachment.libraryID, {
+    includeCollections: true,
+  });
+  clone.attachmentLinkMode = Zotero.Attachments.LINK_MODE_LINKED_FILE;
+  clone.attachmentPath = destination;
+  clone.dateAdded = attachment.dateAdded;
+  return clone;
+}
+
+async function copySharedAttachment(
+  attachment: any,
+  candidate: AttachmentMoveOperation,
+  strategy: AttachmentConflictStrategy,
+): Promise<AttachmentMoveResult | undefined> {
+  const source = await attachment.getFilePathAsync();
+  if (
+    !source ||
+    source !== candidate.sourcePath ||
+    PathUtils.filename(source).toLocaleLowerCase() !==
+      candidate.basename.toLocaleLowerCase()
+  )
+    throw new Error(
+      "Attachment " +
+        candidate.basename +
+        " changed since review; no file was copied.",
+    );
+  const sourceInfo = await IOUtils.stat(source);
+  if (
+    sourceInfo.type !== "regular" ||
+    !matchesMtime(sourceInfo.lastModified, candidate.sourceMtime)
+  )
+    throw new Error(
+      "Attachment " +
+        candidate.basename +
+        " changed since review; no file was copied.",
+    );
+
+  const destination = candidate.destinationPath;
+  const destinationExists = await IOUtils.exists(destination);
+  let same = false;
+  let destinationEmpty = false;
+  let copySource = true;
+  if (destinationExists) {
+    same = await identicalFiles(source, destination);
+    const destinationInfo = await IOUtils.stat(destination);
+    destinationEmpty = !same && destinationInfo.size === 0;
+    if (!same && !destinationEmpty) {
+      const effective = candidate.resolution === "newest" ? "newest" : strategy;
+      if (sourceInfo.size === 0) copySource = false;
+      else if (effective === "skip") return undefined;
+      else if (effective === "newest")
+        copySource =
+          (sourceInfo.lastModified ?? 0) >= (destinationInfo.lastModified ?? 0);
+    }
+  }
+  if (candidate.resolution === "keep-destination" && !same)
+    throw new Error(
+      destination +
+        " no longer matches Zotero attachment " +
+        candidate.basename +
+        "; no file was changed.",
+    );
+
+  let backup: string | undefined;
+  let destinationBackedUp = false;
+  let destinationCopied = false;
+  let clone: any;
+  try {
+    if (destinationExists && !same && copySource) {
+      backup = await uniqueBackup(destination);
+      await moveFile(destination, backup);
+      destinationBackedUp = true;
+    }
+    if (!same && copySource) {
+      await copyFileSafely(source, destination);
+      destinationCopied = true;
+    }
+    clone = cloneLinkedAttachment(attachment, destination);
+    await clone.saveTx();
+    if (destinationEmpty && backup) {
+      try {
+        await IOUtils.remove(backup);
+      } catch (error) {
+        Zotero.logError(error);
+      }
+    }
+    return {
+      itemkey: candidate.itemkey,
+      from: source,
+      to: destination,
+      newKey: clone.key,
+      preservedSource: true,
+      ...(destinationCopied ? { copied: true } : {}),
+    };
+  } catch (error) {
+    const rollbackErrors: string[] = [];
+    if (clone?.id && Zotero.Items.get(clone.id)) {
+      try {
+        await clone.eraseTx();
+      } catch (rollbackError) {
+        rollbackErrors.push(
+          "could not remove the replacement Zotero item: " +
+            describeError(rollbackError),
+        );
+      }
+    }
+    if (destinationCopied) {
+      try {
+        if (await IOUtils.exists(destination))
+          await IOUtils.remove(destination);
+      } catch (rollbackError) {
+        rollbackErrors.push(
+          "could not remove the copied attachment " +
+            destination +
+            ": " +
+            describeError(rollbackError),
+        );
+      }
+    }
+    if (destinationBackedUp && backup) {
+      try {
+        if (!(await IOUtils.exists(backup)))
+          throw new Error("the backup file is missing");
+        await moveFile(backup, destination);
+      } catch (rollbackError) {
+        rollbackErrors.push(
+          "could not restore " +
+            destination +
+            ": " +
+            describeError(rollbackError),
+        );
+      }
+    }
+    if (rollbackErrors.length)
+      throw new Error(
+        describeError(error) + " Rollback issues: " + rollbackErrors.join("; "),
+      );
+    throw error;
+  }
+}
 async function identicalFiles(first: string, second: string): Promise<boolean> {
   const [a, b] = await Promise.all([IOUtils.stat(first), IOUtils.stat(second)]);
   if (a.type !== "regular" || b.type !== "regular")
@@ -113,6 +309,7 @@ async function moveOne(
   attachment: any,
   candidate: AttachmentMoveOperation,
   strategy: AttachmentConflictStrategy,
+  preserveSource = false,
 ): Promise<AttachmentMoveResult | undefined> {
   const source = await attachment.getFilePathAsync();
   if (
@@ -124,6 +321,8 @@ async function moveOne(
     throw new Error(
       `Attachment ${candidate.basename} changed since review; no file was moved.`,
     );
+  if (preserveSource)
+    return copySharedAttachment(attachment, candidate, strategy);
   const actualDestination = candidate.destinationPath;
   const destinationExists = await IOUtils.exists(actualDestination);
   let same = false;
@@ -195,12 +394,7 @@ async function moveOne(
       throw new Error(
         `Zotero attachment ${candidate.basename} is not a supported file attachment.`,
       );
-    clone = attachment.clone(attachment.libraryID, {
-      includeCollections: true,
-    });
-    clone.attachmentLinkMode = Zotero.Attachments.LINK_MODE_LINKED_FILE;
-    clone.attachmentPath = actualDestination;
-    clone.dateAdded = attachment.dateAdded;
+    clone = cloneLinkedAttachment(attachment, actualDestination);
     await clone.saveTx();
     await Zotero.DB.executeTransaction(async () => {
       await Zotero.Items.moveChildItems(attachment, clone);
@@ -285,6 +479,7 @@ export async function moveReviewedAttachments(
   request: AttachmentMoveRequest,
   validatedBaseDirectory: string,
   strategy: AttachmentConflictStrategy,
+  onMutation?: () => void,
 ): Promise<{
   moved: AttachmentMoveResult[];
   linked: Array<{ path: string; newKey: string }>;
@@ -319,10 +514,18 @@ export async function moveReviewedAttachments(
         !entry.basename ||
         PathUtils.filename(entry.basename) !== entry.basename ||
         (entry.resolution === "move" &&
-          !samePath(
-            entry.destinationPath,
-            PathUtils.join(request.baseDirectory, entry.basename),
-          )),
+          (!safeBasename(PathUtils.filename(entry.destinationPath)) ||
+            !sameExtension(
+              entry.basename,
+              PathUtils.filename(entry.destinationPath),
+            ) ||
+            !samePath(
+              entry.destinationPath,
+              PathUtils.join(
+                request.baseDirectory,
+                PathUtils.filename(entry.destinationPath),
+              ),
+            ))),
     )
   ) {
     throw new Error(
@@ -353,6 +556,17 @@ export async function moveReviewedAttachments(
     throw new Error(
       "The Zotero attachment list changed; no attachments were moved.",
     );
+  let zoteroPaths: string[] = [];
+  if (request.attachments.some((entry) => entry.resolution !== "trash")) {
+    try {
+      zoteroPaths = await enumerateZoteroAttachmentPaths();
+    } catch (error) {
+      throw new Error(
+        "Could not verify Zotero attachment references; no files were moved. " +
+          describeError(error),
+      );
+    }
+  }
   for (const candidate of request.attachments) {
     const attachment = matched.find(
       (entry: any) => entry.key === candidate.itemkey,
@@ -371,30 +585,51 @@ export async function moveReviewedAttachments(
         `Attachment ${candidate.basename} changed since review; no files were moved.`,
       );
     }
+    if (!(await IOUtils.exists(source)))
+      throw new Error(
+        `Attachment ${candidate.basename} changed since review; no files were moved.`,
+      );
     const sourceInfo = await IOUtils.stat(source);
     if (sourceInfo.type !== "regular")
       throw new Error(
         `Attachment ${candidate.basename} is not a regular file; no files were moved.`,
       );
-    if (candidate.resolution === "trash") continue;
-    const destination = candidate.destinationPath;
-    const exists = await IOUtils.exists(destination);
-    if (!exists && candidate.resolution !== "move")
+    if (!matchesMtime(sourceInfo.lastModified, candidate.sourceMtime))
       throw new Error(
-        `The note's copy of ${candidate.basename} (${destination}) is missing; no files were moved.`,
+        `Attachment ${candidate.basename} changed since review; no files were moved.`,
       );
-    if (!exists) continue;
+    const destination = candidate.destinationPath;
+    if (samePath(source, destination))
+      throw new Error(
+        `Attachment ${candidate.basename} already points to its destination; no files were moved.`,
+      );
+    const exists = await IOUtils.exists(destination);
+    if (exists !== (candidate.destinationMtime !== undefined))
+      throw new Error(
+        `Attachment destination changed since review; no files were moved: ${destination}`,
+      );
+    if (!exists) {
+      if (candidate.resolution !== "move" && candidate.resolution !== "trash")
+        throw new Error(
+          `The note's copy of ${candidate.basename} (${destination}) is missing; no files were moved.`,
+        );
+      continue;
+    }
     const destinationInfo = await IOUtils.stat(destination);
     if (destinationInfo.type !== "regular")
       throw new Error(
         `The destination for ${candidate.basename} is not a regular file; no files were moved.`,
       );
+    if (!matchesMtime(destinationInfo.lastModified, candidate.destinationMtime))
+      throw new Error(
+        `Attachment destination changed since review; no files were moved: ${destination}`,
+      );
+    if (candidate.resolution === "trash") continue;
     const same = await identicalFiles(source, destination);
     if (
       (candidate.resolution === "keep-destination" && !same) ||
       (candidate.resolution === "newest" &&
-        PathUtils.filename(destination).toLocaleLowerCase() !==
-          candidate.basename.toLocaleLowerCase())
+        !sameExtension(candidate.basename, PathUtils.filename(destination)))
     )
       throw new Error(
         `${destination} no longer matches Zotero attachment ${candidate.basename}; no files were moved.`,
@@ -427,6 +662,7 @@ export async function moveReviewedAttachments(
     ...request.attachments.filter((entry) => entry.resolution === "trash"),
   ];
   try {
+    if (ordered.length || request.linkNoteFiles.length) onMutation?.();
     for (const candidate of ordered) {
       const attachment = matched.find(
         (entry: any) => entry.key === candidate.itemkey,
@@ -438,7 +674,15 @@ export async function moveReviewedAttachments(
       const result =
         candidate.resolution === "trash"
           ? await trashDuplicate(attachment, candidate)
-          : await moveOne(parent, attachment, candidate, strategy);
+          : await moveOne(
+              parent,
+              attachment,
+              candidate,
+              strategy,
+              zoteroPaths.filter((filePath) =>
+                samePath(filePath, candidate.sourcePath),
+              ).length > 1,
+            );
       if (result) moved.push(result);
     }
     for (const filePath of request.linkNoteFiles) {

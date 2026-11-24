@@ -4,12 +4,15 @@ import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerHotkeys } from "./modules/hotkeys";
-import { showNotice } from "./utils/progressNotice";
+import { showDismissibleNotice } from "./utils/progressNotice";
 import { startAutoSync, stopAutoSync } from "./modules/autoSync";
 import {
   startAttachmentBaseMonitor,
   stopAttachmentBaseMonitor,
 } from "./modules/attachmentBaseMonitor";
+
+let dismissStartupNotice: (() => void) | undefined;
+let connectionWarningShown = false;
 
 async function onStartup() {
   await Promise.all([
@@ -35,7 +38,11 @@ async function onStartup() {
   // main windows and removes the menu automatically on shutdown.
   registerItemMenu();
 
-  startAttachmentBaseMonitor();
+  startAttachmentBaseMonitor(() => {
+    connectionWarningShown = true;
+    dismissStartupNotice?.();
+    dismissStartupNotice = undefined;
+  });
   startAutoSync();
   try {
     await syncObsidianTags(addon);
@@ -54,7 +61,10 @@ async function onMainWindowLoad(win: Window): Promise<void> {
 
   registerHotkeys();
 
-  showNotice(getString("startup-finish"));
+  if (!connectionWarningShown) {
+    dismissStartupNotice?.();
+    dismissStartupNotice = showDismissibleNotice(getString("startup-finish"));
+  }
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
@@ -64,6 +74,9 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 function onShutdown(): void {
   stopAttachmentBaseMonitor();
   stopAutoSync();
+  dismissStartupNotice?.();
+  dismissStartupNotice = undefined;
+  connectionWarningShown = false;
   ztoolkit.unregisterAll();
   addon.data.alive = false;
   // @ts-ignore - Plugin instance is not typed

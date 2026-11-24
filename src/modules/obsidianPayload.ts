@@ -290,11 +290,17 @@ function getAttachments(item: any): ZoteroAttachment[] {
 
 function getAttachmentBaseName(item: any): string | undefined {
   try {
-    return Zotero.Attachments.getFileBaseNameFromItem(item) || undefined;
-  } catch {
-    // Obsidian falls back to the citation key when the template cannot be applied.
-    return undefined;
+    const name = Zotero.Attachments.getFileBaseNameFromItem(item);
+    if (typeof name === "string" && name.trim()) return name;
+    Zotero.logError(
+      `[Obsidian sync] Attachment renaming template returned no filename for item ${item.key}.`,
+    );
+  } catch (error) {
+    Zotero.logError(
+      `[Obsidian sync] Could not evaluate attachment renaming template for item ${item.key}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
+  return undefined;
 }
 
 export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {

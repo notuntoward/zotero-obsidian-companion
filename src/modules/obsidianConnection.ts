@@ -550,9 +550,9 @@ export async function postToObsidian(payload: any): Promise<any> {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        // Obsidian may hold this request open while the user answers a modal
-        // (e.g. note already exists), so allow well beyond the old 10s.
-        timeout: 120000,
+        errorDelayMax: 0,
+        // Review decisions may remain open indefinitely; other requests stay bounded.
+        timeout: payload.action === "review-sync" ? 0 : 120000,
       },
     );
 
@@ -560,7 +560,11 @@ export async function postToObsidian(payload: any): Promise<any> {
       try {
         return JSON.parse(resp.responseText);
       } catch {
-        return { success: false, error: "Invalid JSON response from Obsidian" };
+        return {
+          success: false,
+          error: "Invalid JSON response from Obsidian",
+          outcomeUnknown: true,
+        };
       }
     } else {
       let errStr = resp.statusText;
@@ -569,13 +573,21 @@ export async function postToObsidian(payload: any): Promise<any> {
       } catch {
         /* ignore */
       }
-      return { success: false, error: `HTTP ${resp.status}: ${errStr}` };
+      return {
+        success: false,
+        error: `HTTP ${resp.status}: ${errStr}`,
+        ...(resp.status >= 500 ? { outcomeUnknown: true } : {}),
+      };
     }
   } catch (err: any) {
     const msg = String(err?.message || err);
     const status = err?.status ?? err?.xmlhttp?.status;
     return typeof status === "number" && status > 0
-      ? { success: false, error: `HTTP ${status}: ${msg}` }
+      ? {
+          success: false,
+          error: `HTTP ${status}: ${msg}`,
+          ...(status >= 500 ? { outcomeUnknown: true } : {}),
+        }
       : { success: false, error: msg, connectionError: true };
   }
 }

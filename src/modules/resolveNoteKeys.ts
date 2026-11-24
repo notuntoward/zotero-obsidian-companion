@@ -2,6 +2,10 @@ import { enumerateZoteroAttachmentPaths } from "./attachmentReferences";
 import { getCiteKey, getItemPayload, getSyncPayload } from "./obsidianPayload";
 import { postToObsidian } from "./obsidianConnection";
 import { checkCitationKey } from "./citationKeyCheck";
+import {
+  requireCertainResponse,
+  UncertainReviewError,
+} from "./reviewTransport";
 import type { CitationKeyCheck, ZoteroItemPayload } from "./obsidianPayload";
 
 declare const Zotero: any;
@@ -22,6 +26,7 @@ interface Result {
   error?: string;
   noteCitekey?: string;
   deferUntilChanged?: boolean;
+  outcomeUncertain?: boolean;
   expectedZoteroKey?: string;
   token?: string;
   needsAttachmentCheck?: boolean;
@@ -30,15 +35,31 @@ interface Result {
 export async function resolveNoteKeyChoices(
   action: "sync" | "update" | "review-sync",
   pairs: Pair[],
-  response: { results?: Result[]; error?: string },
+  response: {
+    results?: Result[];
+    error?: string;
+    connectionError?: boolean;
+    outcomeUnknown?: boolean;
+  },
 ): Promise<Result[]> {
+  requireCertainResponse(response);
   if (
     !Array.isArray(response?.results) ||
     response.results.length !== pairs.length
   ) {
-    throw new Error(
-      response?.error || "Obsidian returned an incomplete sync result.",
-    );
+    const message =
+      response?.error || "Obsidian returned an incomplete sync result.";
+    if (action === "review-sync") throw new UncertainReviewError(message);
+    throw new Error(message);
+  }
+  if (
+    response.results.some((entry) => !entry || typeof entry.status !== "string")
+  ) {
+    if (action === "review-sync")
+      throw new UncertainReviewError(
+        "Obsidian returned a malformed review result.",
+      );
+    throw new Error("Obsidian returned a malformed sync result.");
   }
   const results = [...response.results];
   for (let index = 0; index < results.length; index++) {
@@ -88,11 +109,28 @@ export async function resolveNoteKeyChoices(
           token: choice.token,
           data: [current],
         });
+        requireCertainResponse(verified);
+        if (
+          action === "review-sync" &&
+          (!Array.isArray(verified?.results) || verified.results.length !== 1)
+        )
+          throw new UncertainReviewError(
+            "Obsidian returned an incomplete verified response.",
+          );
+        if (
+          action === "review-sync" &&
+          verified?.results?.[0]?.status !== "error" &&
+          (verified?.results?.[0]?.status !== "skipped" ||
+            verified.results[0]?.noteCitekey !== key)
+        )
+          throw new UncertainReviewError(
+            "Obsidian returned a malformed verification result.",
+          );
         if (
           !Array.isArray(verified?.results) ||
           verified.results.length !== 1 ||
-          verified.results[0].status !== "skipped" ||
-          verified.results[0].noteCitekey !== key
+          verified.results[0]?.status !== "skipped" ||
+          verified.results[0]?.noteCitekey !== key
         ) {
           throw new Error(
             verified?.results?.[0]?.error ||
@@ -197,6 +235,14 @@ export async function resolveNoteKeyChoices(
         };
         fresh.zoteroChanges = zoteroChanges;
         const continued = await postToObsidian({ action, data: [fresh] });
+        requireCertainResponse(continued);
+        if (
+          action === "review-sync" &&
+          (!Array.isArray(continued?.results) || continued.results.length !== 1)
+        )
+          throw new UncertainReviewError(
+            "Obsidian returned an incomplete continued response.",
+          );
         if (
           !Array.isArray(continued?.results) ||
           continued.results.length !== 1 ||
@@ -236,6 +282,14 @@ export async function resolveNoteKeyChoices(
           data: [fresh],
           ...(zoteroAttachmentPaths ? { zoteroAttachmentPaths } : {}),
         });
+        requireCertainResponse(applied);
+        if (
+          action === "review-sync" &&
+          (!Array.isArray(applied?.results) || applied.results.length !== 1)
+        )
+          throw new UncertainReviewError(
+            "Obsidian returned an incomplete applied response.",
+          );
         if (
           !Array.isArray(applied?.results) ||
           applied.results.length !== 1 ||
@@ -256,14 +310,17 @@ export async function resolveNoteKeyChoices(
       if (mayHaveChanged && choice.status === "error") {
         choice = {
           ...choice,
+          outcomeUncertain: true,
           error: `${choice.error || "Reconciliation failed."} Check both apps before retrying; reconciliation may be partial.`,
         };
       }
       results[index] = choice;
     } catch (error) {
+      if (error instanceof UncertainReviewError) throw error;
       results[index] = {
         citekey: payload.citekey,
         status: "error",
+        ...(mayHaveChanged ? { outcomeUncertain: true } : {}),
         error: `${mayHaveChanged ? "Check both apps before retrying; reconciliation may be partial" : "Resolve the problem and retry; reconciliation stopped before applying changes"}: ${error instanceof Error ? error.message : String(error)}`,
       };
     }

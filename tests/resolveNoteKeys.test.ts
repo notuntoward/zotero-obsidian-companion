@@ -71,6 +71,48 @@ describe("citation-key reconciliation", () => {
     ).rejects.toThrow("Connection refused");
   });
 
+  it.each(["validate-zotero-key", "continued", "apply-sync"])(
+    "propagates transport uncertainty from %s during review",
+    async (stage) => {
+      const { pair } = fixture();
+      if (stage === "apply-sync") {
+        mocks.post.mockResolvedValueOnce({
+          connectionError: true,
+          error: "response lost",
+        });
+        await expect(
+          resolveNoteKeyChoices("review-sync", [pair], {
+            results: [
+              { citekey: "zotero", status: "prepared", token: "token" },
+            ],
+          }),
+        ).rejects.toThrow("response lost");
+      } else {
+        if (stage === "continued")
+          mocks.post.mockResolvedValueOnce({
+            results: [{ status: "skipped", noteCitekey: "note" }],
+          });
+        mocks.post.mockResolvedValueOnce({
+          connectionError: true,
+          error: "response lost",
+        });
+        await expect(
+          resolveNoteKeyChoices("review-sync", [pair], {
+            results: [
+              {
+                citekey: "zotero",
+                status: "set-zotero-key",
+                token: "token",
+                noteCitekey: "note",
+                expectedZoteroKey: "zotero",
+              },
+            ],
+          }),
+        ).rejects.toThrow("response lost");
+      }
+    },
+  );
+
   it("rechecks the Zotero payload before applying a prepared note update", async () => {
     const { item, pair } = fixture();
     mocks.post.mockResolvedValue({

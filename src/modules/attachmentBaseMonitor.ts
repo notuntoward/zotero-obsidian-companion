@@ -3,7 +3,10 @@ import {
   isObsidianServerReady,
   postToObsidian,
 } from "./obsidianConnection";
-import { showDismissibleNotice } from "../utils/progressNotice";
+import {
+  showDismissibleNotice,
+  showInWindowNotice,
+} from "../utils/progressNotice";
 
 declare const Zotero: any;
 declare const addon: any;
@@ -13,21 +16,37 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
 let lastWarning = "";
 let dismissWarning: (() => void) | undefined;
+let warningTimer: ReturnType<typeof setTimeout> | undefined;
 let validatedBaseDirectory = "";
 let validationState: "pending" | "valid" | "invalid" = "pending";
+let onConnectionWarningShown: (() => void) | undefined;
 
-function setWarning(warning: string): void {
+function setWarning(warning: string, connectionFailed = false): void {
   if (warning === lastWarning) return;
+  if (warningTimer) clearTimeout(warningTimer);
+  warningTimer = undefined;
   dismissWarning?.();
   dismissWarning = undefined;
   lastWarning = "";
   if (!warning) return;
   Zotero.logError(`[Obsidian attachment check] ${warning}`);
-  dismissWarning = showDismissibleNotice(warning, {
-    type: "fail",
-    timeoutMs: 15000,
-  });
-  if (dismissWarning) lastWarning = warning;
+  if (connectionFailed) {
+    lastWarning = warning;
+    dismissWarning = showInWindowNotice(warning, () => {
+      onConnectionWarningShown?.();
+      warningTimer = setTimeout(() => {
+        dismissWarning?.();
+        dismissWarning = undefined;
+        warningTimer = undefined;
+      }, 30000);
+    });
+  } else {
+    dismissWarning = showDismissibleNotice(warning, {
+      type: "fail",
+      timeoutMs: 15000,
+    });
+    if (dismissWarning) lastWarning = warning;
+  }
 }
 
 function waitForServer(current: number): void {
@@ -82,10 +101,10 @@ async function check(): Promise<void> {
       if (!addon.data.alive || current !== generation) return;
       warning =
         state === "stopped"
-          ? "Open Obsidian to check Zotero's Linked Attachment Base Directory. Obsidian is not running; the check will retry automatically."
+          ? "Obsidian is not running. Open Obsidian to connect; Zotero will retry automatically."
           : state === "running"
-            ? "Open the intended vault and check that Perplexity Saver is enabled. Obsidian is running, but its local server is not responding; the check will retry automatically."
-            : "Open Obsidian and check that Perplexity Saver is enabled. Its local server did not respond, and the Obsidian process state could not be determined; the check will retry automatically.";
+            ? "Obsidian is running, but Zotero can't connect. Open your vault and make sure Perplexity Saver is enabled; Zotero will retry automatically."
+            : "Zotero can't connect to Obsidian. Open Obsidian and make sure Perplexity Saver is enabled in your vault; Zotero will retry automatically.";
       Zotero.debug(
         `[Obsidian attachment check] Local request failed: ${result.error}`,
       );
@@ -100,7 +119,7 @@ async function check(): Promise<void> {
       warning =
         "Check that Perplexity Saver is up to date in Obsidian. It returned an unrecognized attachment-directory result; the check will retry automatically.";
     }
-    setWarning(warning);
+    setWarning(warning, connectionFailed);
   } catch (error) {
     if (!addon.data.alive || current !== generation) return;
     validationState = "pending";
@@ -118,7 +137,8 @@ async function check(): Promise<void> {
   }
 }
 
-export function startAttachmentBaseMonitor(): void {
+export function startAttachmentBaseMonitor(onWarningShown?: () => void): void {
+  onConnectionWarningShown = onWarningShown;
   observer = Zotero.Prefs.registerObserver("baseAttachmentPath", () => {
     void check();
   });
@@ -132,6 +152,7 @@ export function stopAttachmentBaseMonitor(): void {
   if (timer) clearTimeout(timer);
   timer = undefined;
   setWarning("");
+  onConnectionWarningShown = undefined;
   validatedBaseDirectory = "";
   validationState = "pending";
 }

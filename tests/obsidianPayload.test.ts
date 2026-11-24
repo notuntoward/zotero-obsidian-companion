@@ -5,12 +5,14 @@ describe("attachment payloads", () => {
   beforeEach(() => {
     (globalThis as any).Zotero = {
       debug: vi.fn(),
+      logError: vi.fn(),
       Prefs: { get: vi.fn(() => "C:\\vault") },
       Attachments: {
         LINK_MODE_LINKED_FILE: 2,
         LINK_MODE_IMPORTED_FILE: 0,
         LINK_MODE_IMPORTED_URL: 1,
         BASE_PATH_PLACEHOLDER: "attachments:",
+        getFileBaseNameFromItem: vi.fn(() => "Author - Title"),
       },
       HTTP: {
         request: vi.fn().mockRejectedValue(new Error("BBT unavailable")),
@@ -129,4 +131,44 @@ describe("attachment payloads", () => {
     expect(result.linkedAttachmentBaseDirectory).toBe("");
     expect(result.linkedAttachmentBaseDirectoryValidated).toBe(false);
   });
+
+  it("includes Zotero's evaluated attachment filename", async () => {
+    const z = (globalThis as any).Zotero;
+    const { getSyncPayload } = await import("../src/modules/obsidianPayload");
+    const item = {
+      key: "ABC",
+      libraryID: 1,
+      getField: () => "citekey",
+      getAttachments: () => [],
+    };
+    const result = await getSyncPayload(item);
+    expect(result.attachmentBaseName).toBe("Author - Title");
+    expect(z.Attachments.getFileBaseNameFromItem).toHaveBeenCalledWith(item);
+    expect(z.logError).not.toHaveBeenCalled();
+  });
+
+  it.each(["throws", "empty"])(
+    "logs a %s attachment template result without substituting a citekey",
+    async (failure) => {
+      const z = (globalThis as any).Zotero;
+      if (failure === "throws")
+        z.Attachments.getFileBaseNameFromItem.mockImplementation(() => {
+          throw new Error("template failed");
+        });
+      else z.Attachments.getFileBaseNameFromItem.mockReturnValue("  ");
+      const { getSyncPayload } = await import("../src/modules/obsidianPayload");
+      const result = await getSyncPayload({
+        key: "ABC",
+        libraryID: 1,
+        getField: () => "citekey",
+        getAttachments: () => [],
+      });
+      expect(result.attachmentBaseName).toBeUndefined();
+      expect(z.logError).toHaveBeenCalledOnce();
+      expect(z.logError.mock.calls[0][0].toLowerCase()).toContain(
+        "attachment renaming template",
+      );
+      expect(z.logError.mock.calls[0][0]).toContain("ABC");
+    },
+  );
 });

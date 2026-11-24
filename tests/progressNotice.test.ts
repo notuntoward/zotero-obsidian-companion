@@ -4,6 +4,7 @@ import {
   resizeCompactProgressWindow,
   pluginIconUrl,
   showDismissibleNotice,
+  showInWindowNotice,
   showNotice,
 } from "../src/utils/progressNotice";
 
@@ -194,6 +195,72 @@ describe("progressNotice", () => {
     });
   });
 
+  describe("showInWindowNotice", () => {
+    it("shows a dismissible warning once the main window is ready", async () => {
+      vi.useFakeTimers();
+      try {
+        const elements: any[] = [];
+        const doc = {
+          createElementNS: vi.fn((_ns: string, tag: string) => {
+            const el: any = {
+              tag,
+              style: {},
+              children: [],
+              setAttribute: vi.fn(),
+              appendChild(child: any) {
+                this.children.push(child);
+              },
+              addEventListener: vi.fn(),
+              remove: vi.fn(),
+            };
+            elements.push(el);
+            return el;
+          }),
+          documentElement: { appendChild: vi.fn() },
+        };
+        let win: any = null;
+        (globalThis as any).Zotero.getMainWindow = vi.fn(() => win);
+        const shown = vi.fn();
+        const dismiss = showInWindowNotice("Connection unavailable", shown);
+        expect(shown).not.toHaveBeenCalled();
+        win = { document: doc, closed: false };
+        await vi.advanceTimersByTimeAsync(500);
+        expect(shown).toHaveBeenCalledOnce();
+        expect(doc.documentElement.appendChild).toHaveBeenCalledWith(
+          elements[0],
+        );
+        expect(
+          elements.some((el) => el.textContent === "Connection unavailable"),
+        ).toBe(true);
+        expect(elements[0].setAttribute).toHaveBeenCalledWith("role", "alert");
+        const button = elements.find((el) => el.tag === "button");
+        const onClick = button.addEventListener.mock.calls.find(
+          (call: any[]) => call[0] === "click",
+        )[1];
+        onClick();
+        dismiss();
+        expect(elements[0].remove).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("cancels a pending warning before a window becomes available", async () => {
+      vi.useFakeTimers();
+      try {
+        (globalThis as any).Zotero.getMainWindow = vi.fn(() => null);
+        const shown = vi.fn();
+        const dismiss = showInWindowNotice("Waiting", shown);
+        dismiss();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(shown).not.toHaveBeenCalled();
+        expect((globalThis as any).Zotero.getMainWindow).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("showNotice", () => {
     it("shows a success-styled, self-dismissing line with the plugin headline", () => {
       const notice: any = {
@@ -219,6 +286,26 @@ describe("progressNotice", () => {
       });
       expect(notice.show).toHaveBeenCalledWith(-1);
       expect(notice.startCloseTimer).toHaveBeenCalledWith(3000);
+    });
+
+    it("does not start a native close timer for a manually timed notice", () => {
+      const notice = {
+        createLine: vi.fn().mockReturnThis(),
+        show: vi.fn(),
+        startCloseTimer: vi.fn(),
+        close: vi.fn(),
+        lines: [{}],
+      };
+      (globalThis as any).addon.data.ztoolkit.ProgressWindow = vi.fn(
+        function () {
+          return notice;
+        },
+      );
+      const dismiss = showDismissibleNotice("Waiting", { timeoutMs: 0 });
+      expect(notice.show).toHaveBeenCalledWith(-1);
+      expect(notice.startCloseTimer).not.toHaveBeenCalled();
+      dismiss?.();
+      expect(notice.close).toHaveBeenCalledOnce();
     });
 
     it("dismisses only the notice returned by the helper", () => {

@@ -67,10 +67,10 @@ export async function enumerateZoteroAttachmentPaths(): Promise<string[]> {
 
       let filePath: unknown;
       try {
-        if (typeof item.getFilePathAsync !== "function") {
+        if (typeof item.getFilePath !== "function") {
           throw new Error("Zotero file-path lookup is unavailable.");
         }
-        filePath = await item.getFilePathAsync();
+        filePath = item.getFilePath();
       } catch (error) {
         throw new Error(
           `Could not resolve file path for attachment ${item.key || item.id} in library ${library.libraryID}: ${describeError(error)}`,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   notice: vi.fn(),
+  connectionNotice: vi.fn(),
   dismiss: vi.fn(),
   ready: vi.fn(),
   processState: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock("../src/modules/obsidianConnection", () => ({
 }));
 vi.mock("../src/utils/progressNotice", () => ({
   showDismissibleNotice: mocks.notice,
+  showInWindowNotice: mocks.connectionNotice,
 }));
 import {
   getValidatedAttachmentBaseDirectory,
@@ -31,6 +33,10 @@ describe("linked attachment base monitor", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.notice.mockReturnValue(mocks.dismiss);
+    mocks.connectionNotice.mockImplementation((_message, onShown) => {
+      onShown();
+      return mocks.dismiss;
+    });
     mocks.ready.mockReset().mockResolvedValue(false);
     base = "C:\\outside";
     (globalThis as any).addon = { data: { alive: true } };
@@ -90,11 +96,15 @@ describe("linked attachment base monitor", () => {
   });
 
   it.each([
-    ["stopped", "Open Obsidian", "Obsidian is not running"],
-    ["running", "Open the intended vault", "Obsidian is running"],
-    ["unknown", "Open Obsidian", "process state could not be determined"],
+    ["stopped", "Obsidian is not running", "Open Obsidian to connect"],
+    ["running", "Obsidian is running", "make sure Perplexity Saver is enabled"],
+    [
+      "unknown",
+      "Zotero can't connect to Obsidian",
+      "make sure Perplexity Saver is enabled",
+    ],
   ])(
-    "gives action-first guidance when the local server fails and Obsidian is %s",
+    "gives clear connection guidance when the local server fails and Obsidian is %s",
     async (state, action, diagnosis) => {
       mocks.post.mockResolvedValue({
         success: false,
@@ -103,14 +113,79 @@ describe("linked attachment base monitor", () => {
       });
       mocks.processState.mockResolvedValue(state);
       startAttachmentBaseMonitor();
-      await vi.waitFor(() => expect(mocks.notice).toHaveBeenCalledOnce());
-      const message = mocks.notice.mock.calls[0][0];
+      await vi.waitFor(() =>
+        expect(mocks.connectionNotice).toHaveBeenCalledOnce(),
+      );
+      const message = mocks.connectionNotice.mock.calls[0][0];
       expect(message.startsWith(action)).toBe(true);
       expect(message).toContain(diagnosis);
       expect(message).not.toContain("Internet");
       expect(message).toContain("retry automatically");
     },
   );
+
+  it("keeps the startup connection warning visible for 30 seconds while offline", async () => {
+    mocks.post.mockResolvedValue({
+      success: false,
+      connectionError: true,
+      error: "offline",
+    });
+    mocks.processState.mockResolvedValue("stopped");
+    startAttachmentBaseMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.connectionNotice).toHaveBeenCalledOnce();
+    expect(mocks.connectionNotice).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Function),
+    );
+    await vi.advanceTimersByTimeAsync(29999);
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.dismiss).toHaveBeenCalledOnce();
+  });
+
+  it("signals replacement only when the connection warning is displayed", async () => {
+    let show!: () => void;
+    const onShown = vi.fn();
+    mocks.connectionNotice.mockImplementation((_message, callback) => {
+      show = callback;
+      return mocks.dismiss;
+    });
+    mocks.post.mockResolvedValue({
+      success: false,
+      connectionError: true,
+      error: "offline",
+    });
+    mocks.processState.mockResolvedValue("stopped");
+    startAttachmentBaseMonitor(onShown);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onShown).not.toHaveBeenCalled();
+    show();
+    expect(onShown).toHaveBeenCalledOnce();
+  });
+
+  it("starts the 30-second deadline only after the warning is displayed", async () => {
+    let show!: () => void;
+    mocks.connectionNotice.mockImplementation((_message, onShown) => {
+      show = onShown;
+      return mocks.dismiss;
+    });
+    mocks.post.mockResolvedValue({
+      success: false,
+      connectionError: true,
+      error: "offline",
+    });
+    mocks.processState.mockResolvedValue("stopped");
+    startAttachmentBaseMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    show();
+    await vi.advanceTimersByTimeAsync(29999);
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.dismiss).toHaveBeenCalledOnce();
+  });
 
   it("dismisses the connection warning when the server becomes available", async () => {
     mocks.post
@@ -123,7 +198,9 @@ describe("linked attachment base monitor", () => {
     mocks.processState.mockResolvedValue("stopped");
     mocks.ready.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     startAttachmentBaseMonitor();
-    await vi.waitFor(() => expect(mocks.notice).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(mocks.connectionNotice).toHaveBeenCalledOnce(),
+    );
 
     await vi.advanceTimersByTimeAsync(5000);
     expect(mocks.dismiss).not.toHaveBeenCalled();
@@ -132,7 +209,9 @@ describe("linked attachment base monitor", () => {
     expect(mocks.dismiss).toHaveBeenCalledOnce();
     expect(mocks.post).toHaveBeenCalledTimes(2);
     expect(getAttachmentBaseValidationState()).toBe("valid");
-    expect(mocks.notice).toHaveBeenCalledOnce();
+    expect(mocks.connectionNotice).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(mocks.dismiss).toHaveBeenCalledOnce();
   });
 
   it("replaces a connection warning with a real directory warning", async () => {
@@ -150,12 +229,14 @@ describe("linked attachment base monitor", () => {
     mocks.processState.mockResolvedValue("stopped");
     mocks.ready.mockResolvedValue(true);
     startAttachmentBaseMonitor();
-    await vi.waitFor(() => expect(mocks.notice).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(mocks.connectionNotice).toHaveBeenCalledOnce(),
+    );
 
     await vi.advanceTimersByTimeAsync(5000);
     expect(mocks.dismiss).toHaveBeenCalledOnce();
-    expect(mocks.notice).toHaveBeenCalledTimes(2);
-    expect(mocks.notice.mock.calls[1][0]).toContain(
+    expect(mocks.notice).toHaveBeenCalledOnce();
+    expect(mocks.notice.mock.calls[0][0]).toContain(
       "outside the open Obsidian vault",
     );
     expect(getAttachmentBaseValidationState()).toBe("invalid");
@@ -181,10 +262,12 @@ describe("linked attachment base monitor", () => {
       }),
     );
     startAttachmentBaseMonitor();
-    await vi.waitFor(() => expect(mocks.notice).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(mocks.connectionNotice).toHaveBeenCalledOnce(),
+    );
     await vi.advanceTimersByTimeAsync(5000);
     changed();
-    await vi.waitFor(() => expect(mocks.notice).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(mocks.notice).toHaveBeenCalledOnce());
     expect(mocks.dismiss).toHaveBeenCalledOnce();
     resolveReady(true);
     await Promise.resolve();
