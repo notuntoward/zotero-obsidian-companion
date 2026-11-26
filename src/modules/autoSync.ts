@@ -41,6 +41,9 @@ let running = false;
 let scanId = "";
 let scanStarted = false;
 let scanWorkDone = false;
+let scanPaused = false;
+let scanManual = false;
+let allowReviewsBeforeScan = false;
 let dismissSyncNotice: (() => void) | undefined;
 let scanComplete = false;
 let scanSessionMismatch = false;
@@ -52,6 +55,7 @@ let reviewPolling = false;
 let processingReviews = false;
 const inFlightReviews = new Set<string>();
 const inFlightSyncs = new Set<string>();
+const recoveredAutomatic = new Set<string>();
 const warnedUncertain = new Set<string>();
 const uncertainReportErrors = new Map<string, string>();
 const uncertainTitleErrors = new Map<string, string>();
@@ -64,6 +68,15 @@ const deferredAttachmentRecovery = new Set<string>();
 const inFlightItemTrash = new Set<string>();
 let lastRescan = "";
 let lastObsidianSession = "";
+
+function automaticChecksPaused(): boolean {
+  return (
+    Zotero.Prefs.get(
+      `${addon.data.config.prefsPrefix}.pauseAutomaticChecks`,
+      true,
+    ) === true
+  );
+}
 
 class ReviewJournalClearError extends Error {}
 class ScanSessionMismatchError extends Error {}
@@ -880,7 +893,9 @@ export async function processReviewRequests(
       (scanComplete || scanSessionMismatch)
     ) {
       lastObsidianSession = data.obsidianSession;
+      recoveredAutomatic.clear();
       restartScan(0);
+      allowReviewsBeforeScan = false;
       return false;
     }
   }
@@ -891,7 +906,12 @@ export async function processReviewRequests(
     (scanComplete || scanSessionMismatch)
   ) {
     lastRescan = data.rescan;
+    restartScan(0, true);
+    return false;
+  }
+  if (scanComplete && automaticChecksPaused() !== scanPaused) {
     restartScan(0);
+    return false;
   }
   if (Array.isArray(data.itemTrash))
     for (const request of data.itemTrash) await trashRequestedItem(request);
@@ -982,7 +1002,15 @@ export async function processReviewRequests(
         entry.operation === "attachment-move" &&
         getAttachmentBaseValidationState() === "pending"
       ) &&
-      !journal.some((current) => sameReview(current, entry)) &&
+      !journal.some(
+        (current) =>
+          sameReview(current, entry) &&
+          !(
+            entry.automaticAttachment &&
+            current.operation === "auto-attachment" &&
+            recoveredAutomatic.has(reviewIdentity(current))
+          ),
+      ) &&
       !data.pending.some(
         (pendingEntry: any) =>
           pendingEntry?.uncertain === true && sameReview(pendingEntry, entry),
@@ -1018,7 +1046,11 @@ export async function processReviewRequests(
         }
       : {}),
   };
-  writeReviewJournal([...journal, entry]);
+  writeReviewJournal([
+    ...journal.filter((current) => !sameReview(current, entry)),
+    entry,
+  ]);
+  recoveredAutomatic.delete(reviewIdentity(entry));
   const key = reviewIdentity(entry);
   inFlightReviews.add(key);
   const more = available.length > 1;
@@ -1310,7 +1342,10 @@ export async function processReviewRequests(
 async function pollReviews(): Promise<void> {
   let more = false;
   try {
-    if ((scanStarted || scanSessionMismatch) && !running) {
+    if (
+      (scanStarted || scanSessionMismatch || allowReviewsBeforeScan) &&
+      !running
+    ) {
       processingReviews = true;
       try {
         more = await processReviewRequests(!scanSessionMismatch);
@@ -1334,6 +1369,7 @@ async function scanBoundary(payload: object): Promise<void> {
       "Obsidian did not acknowledge the initial review scan.";
     if (
       (response &&
+        response.retryable !== true &&
         Object.prototype.hasOwnProperty.call(response, "initialReviewScan")) ||
       /^HTTP 409(?:\b|:)/.test(message)
     )
@@ -1541,6 +1577,14 @@ async function recoverInitialReview(
           response?.error ||
           "Obsidian could not recover the interrupted review.",
       );
+    const automaticRecoveryPending =
+      response.results[0].automaticRecoveryPending === true;
+    if (
+      automaticRecoveryPending &&
+      (entry.operation !== "auto-attachment" ||
+        response.results[0].status !== "pending-review")
+    )
+      throw new Error("Obsidian returned an invalid automatic recovery state.");
     const currentPayload = await currentRecoveryPayload(entry);
     if (
       currentPayload.itemID !== itemID ||
@@ -1557,10 +1601,15 @@ async function recoverInitialReview(
       current.state !== "in-flight"
     )
       throw new Error("The interrupted review changed during recovery.");
-    writeReviewJournal(
-      journal.filter((candidate) => !sameReview(candidate, entry)),
-    );
-    forgetUncertain(entry);
+    if (automaticRecoveryPending) {
+      recoveredAutomatic.add(key);
+      reportedUncertain.add(key);
+    } else {
+      writeReviewJournal(
+        journal.filter((candidate) => !sameReview(candidate, entry)),
+      );
+      forgetUncertain(entry);
+    }
     deferredAttachmentRecovery.delete(key);
     invalidateRecoveryScan(entry);
     return "recovered";
@@ -1608,6 +1657,9 @@ async function reportInitialJournal(): Promise<boolean> {
           warn(
             `Could not resume automatic attachment reconciliation for ${entry.itemkey}.`,
           );
+          throw new Error(
+            `Could not recover automatic attachment reconciliation for ${entry.itemkey}.`,
+          );
         } else await reportUncertain(entry);
       }
     }
@@ -1634,20 +1686,25 @@ async function run(): Promise<void> {
   try {
     if (!(await isObsidianServerReady())) return;
     if (!scanStarted) {
-      await scanBoundary({ action: "initial-review-scan-start", scanId });
+      await scanBoundary({
+        action: "initial-review-scan-start",
+        scanId,
+        ...(scanPaused && !scanManual ? { preserveExisting: true } : {}),
+      });
       scanStarted = true;
     }
     if (!scanWorkDone) {
       if (getAttachmentBaseValidationState() === "pending") return;
       await reportInitialJournal();
       scanIssue = "";
-      scanWorkDone = await syncExistingNotesOnce(true);
+      scanWorkDone =
+        scanPaused && !scanManual ? true : await syncExistingNotesOnce(true);
       if (!scanWorkDone) {
         if (scanIssue) throw new Error(scanIssue);
         return;
       }
       try {
-        if (await reportInitialJournal()) {
+        if (!(scanPaused && !scanManual) && (await reportInitialJournal())) {
           scanWorkDone = false;
           return;
         }
@@ -1659,11 +1716,12 @@ async function run(): Promise<void> {
     await scanBoundary({
       action: "initial-review-scan-end",
       scanId,
-      status: "complete",
+      status: scanPaused ? "paused" : "complete",
     });
     scanComplete = true;
     dismissSyncNotice?.();
-    dismissSyncNotice = showDismissibleNotice(getString("startup-finish"));
+    if (!scanPaused)
+      dismissSyncNotice = showDismissibleNotice(getString("startup-finish"));
     lastWarning = "";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1697,10 +1755,13 @@ async function run(): Promise<void> {
   }
 }
 
-function restartScan(delay: number): void {
+function restartScan(delay: number, manual = false): void {
+  allowReviewsBeforeScan = scanStarted && !scanSessionMismatch;
   scanId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   scanStarted = false;
   scanWorkDone = false;
+  scanPaused = automaticChecksPaused();
+  scanManual = manual;
   scanComplete = false;
   scanSessionMismatch = false;
   scannedIdentities.clear();
@@ -1730,10 +1791,14 @@ export function stopAutoSync(): void {
   lastObsidianSession = "";
   scanStarted = false;
   scanWorkDone = false;
+  scanPaused = false;
+  scanManual = false;
+  allowReviewsBeforeScan = false;
   scanComplete = false;
   scanSessionMismatch = false;
   scannedIdentities.clear();
   reportedUncertain.clear();
+  recoveredAutomatic.clear();
   blocked.clear();
   pendingBlocked.clear();
   deferred.clear();

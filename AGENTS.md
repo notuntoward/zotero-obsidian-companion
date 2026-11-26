@@ -91,6 +91,11 @@ item key. After changing a citekey in Zotero, `zoteroChanges` records the prior
 citekey and only file moves verified by the same attachment item key; preserve
 this summary when revalidating and applying the resulting one-use plan.
 
+Automatic checks can be paused in the companion; recovery and manual checks must
+remain available. Paused scan starts preserve existing reviews and end with the
+`paused` status. Retain the automatic-attachment journal when recovery returns
+`automaticRecoveryPending` until the recovered plan has been durably handed off.
+
 `src/modules/actions.ts` batches all selected items into ONE request, tags the
 items whose status means the note now exists
 (`created | overwritten | opened`), and reports error results in a single

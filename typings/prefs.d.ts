@@ -10,6 +10,7 @@ declare namespace _ZoteroTypes {
       "obsidianTagName": string;
       "showPaneToggles": boolean;
       "betterBibTeXNoticeShown": boolean;
+      "pauseAutomaticChecks": boolean;
       "hotkeyCreateLitNote": string;
       "hotkeySyncTags": string;
       "hotkeyToggleLeftPane": string;

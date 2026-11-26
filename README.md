@@ -37,7 +37,7 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 - **Copy Zotero Item Key:** Copies the selected item's Zotero item key (one key per line for multiple items) to the clipboard.
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
 
-Citation-key and attachment changes are also reconciled automatically when both plugins are running. Reviews wait in Obsidian's **Zotero reviews** status-bar entry until selected; Zotero must be running to prepare a review. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
+Citation-key and attachment changes are also reconciled automatically when both plugins are running, unless automatic checks are paused in Zotero's Obsidian settings. Reviews wait in Obsidian's **Zotero reviews** status-bar entry until selected; Zotero must be running to prepare a review. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
 
 If a response is lost after reconciliation may have changed an item or note, the companion checks the current state on startup. Interrupted automatic attachment work retains its original paths for recovery and replanning without an attachment review. Other unresolved interrupted operations may require attention in **Zotero reviews**.
 
@@ -58,6 +58,8 @@ If Zotero cannot check whether other attachments reference the originals, the co
 Configure settings in Zotero via **Edit -> Settings -> Obsidian**:
 
 - **Keyboard Shortcuts:** Assign custom hotkeys to Create Lit Note, Open Lit Note, Sync Tags, Toggle Panes, Regen BibTeX Key, and Copy Zotero Item Key.
+- **Literature note checks:** **Pause automatic Zotero and Obsidian checks** stops new automatic consistency scans. A scan already in progress finishes first. Zotero still recovers interrupted updates and processes existing reviews. Use **Check all literature notes against Zotero again** in Obsidian for a manual check while paused, or turn the setting off to resume automatic checks. Pausing can leave citation-key, identity and attachment differences undiscovered. Obsidian hides the review status when nothing needs attention; its absence does not prove a check ran or Zotero is connected. If a manual check does not start, verify that Zotero and the updated companion are running.
+- This setting does not stop has-note indicator syncing or linked-attachment base-directory validation.
 - **Has-note Indicator Tag:**
   - **Zotero tag showing item has an Obsidian note** (default: `obsLitNote`): The tag assigned to Zotero items when a corresponding literature note exists in Obsidian. The plugin automatically assigns a green color to this tag on startup.
 - **Zotero Interface:**

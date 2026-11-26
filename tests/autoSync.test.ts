@@ -2275,6 +2275,287 @@ describe("automatic note reconciliation", () => {
     );
     return { zotero, entry, item, payload };
   }
+  it("pauses startup checks while preserving recovery, manual checks and resuming", async () => {
+    vi.useFakeTimers();
+    try {
+      const { zotero, payload } = startupRecoveryFixture();
+      zotero.Prefs.set("extensions.test.pauseAutomaticChecks", true);
+      let rescan = "";
+      zotero.HTTP.request.mockImplementation(
+        async (_method: string, url: string) => ({
+          responseText: JSON.stringify(
+            url.includes("identities")
+              ? {
+                  success: true,
+                  identities: [
+                    { itemkey: "ABC", libraryURI: "library", citekey: "new" },
+                  ],
+                }
+              : { success: true, requests: [], pending: [], rescan },
+          ),
+        }),
+      );
+      mocks.post.mockImplementation(async (request: any) => {
+        if (request.action === "review-recover")
+          return {
+            success: true,
+            results: [{ status: "skipped", citekey: "new" }],
+          };
+        if (request.action === "sync")
+          return {
+            success: true,
+            results: [{ status: "skipped", citekey: "new" }],
+          };
+        return { success: true };
+      });
+      startAutoSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(mocks.post).toHaveBeenCalledWith({
+        action: "review-recover",
+        data: [payload],
+      });
+      expect(mocks.post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "initial-review-scan-start",
+          preserveExisting: true,
+        }),
+      );
+      expect(mocks.post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "initial-review-scan-end",
+          status: "paused",
+        }),
+      );
+      expect(
+        zotero.HTTP.request.mock.calls.some(([, url]: any[]) =>
+          url.includes("identities"),
+        ),
+      ).toBe(false);
+      expect(
+        mocks.post.mock.calls.some(
+          ([request]: any[]) => request.action === "sync",
+        ),
+      ).toBe(false);
+
+      rescan = "manual-1";
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(
+        mocks.post.mock.calls.some(
+          ([request]: any[]) => request.action === "sync",
+        ),
+      ).toBe(true);
+      expect(
+        mocks.post.mock.calls
+          .filter(
+            ([request]: any[]) => request.action === "initial-review-scan-end",
+          )
+          .at(-1)?.[0].status,
+      ).toBe("paused");
+
+      zotero.Prefs.set("extensions.test.pauseAutomaticChecks", false);
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(
+        mocks.post.mock.calls
+          .filter(
+            ([request]: any[]) => request.action === "initial-review-scan-end",
+          )
+          .at(-1)?.[0].status,
+      ).toBe("complete");
+      zotero.Prefs.set("extensions.test.pauseAutomaticChecks", true);
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(
+        mocks.post.mock.calls
+          .filter(
+            ([request]: any[]) => request.action === "initial-review-scan-end",
+          )
+          .at(-1)?.[0].status,
+      ).toBe("paused");
+    } finally {
+      stopAutoSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("finishes an in-flight check before applying the pause", async () => {
+    vi.useFakeTimers();
+    try {
+      const { zotero } = startupRecoveryFixture();
+      zotero.Prefs.set("extensions.test.reviewJournal", "[]");
+      mocks.post.mockImplementation(async (request: any) =>
+        request.action === "sync"
+          ? { success: true, results: [{ status: "skipped", citekey: "new" }] }
+          : { success: true },
+      );
+      startAutoSync();
+      await vi.advanceTimersByTimeAsync(1500);
+      zotero.Prefs.set("extensions.test.pauseAutomaticChecks", true);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(
+        mocks.post.mock.calls.some(
+          ([request]: any[]) => request.action === "sync",
+        ),
+      ).toBe(true);
+      expect(
+        mocks.post.mock.calls
+          .filter(
+            ([request]: any[]) => request.action === "initial-review-scan-end",
+          )
+          .map(([request]: any[]) => request.status),
+      ).toEqual(["complete", "paused"]);
+    } finally {
+      stopAutoSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the automatic attachment journal until recovered work is resumed, even after restart", async () => {
+    vi.useFakeTimers();
+    try {
+      const { zotero, entry, payload } = startupRecoveryFixture();
+      zotero.Prefs.set("extensions.test.pauseAutomaticChecks", true);
+      const paths = [
+        {
+          itemkey: "ATT",
+          sourcePath: "C:\\storage\\paper.pdf",
+          destinationPath: "C:\\vault\\paper.pdf",
+        },
+      ];
+      const automatic = {
+        ...entry,
+        operation: "auto-attachment",
+        attachmentPaths: paths,
+      };
+      zotero.Prefs.set(
+        "extensions.test.reviewJournal",
+        JSON.stringify([automatic]),
+      );
+      Object.assign(payload, {
+        automaticAttachments: true,
+        linkedAttachmentBaseDirectory: "C:\\vault",
+        linkedAttachmentBaseDirectoryValidated: true,
+      });
+      const candidate = {
+        baseDirectory: "C:\\vault",
+        automatic: true,
+        attachments: [
+          {
+            itemkey: "ATT",
+            mode: "linked",
+            basename: "paper.pdf",
+            sourcePath: paths[0].sourcePath,
+            destinationPath: paths[0].destinationPath,
+            resolution: "keep-note",
+            conflict: true,
+            identical: false,
+            sourceMtime: 1,
+            destinationMtime: 2,
+          },
+        ],
+        linkNoteFiles: [],
+      };
+      let available = false;
+      let rescan = "";
+      let finished = false;
+      let lostResponse = false;
+      zotero.HTTP.request.mockImplementation(async () => ({
+        responseText: JSON.stringify({
+          success: true,
+          requests: available
+            ? [
+                {
+                  itemkey: "ABC",
+                  libraryURI: "library",
+                  operation: "attachment-move",
+                  automaticAttachment: true,
+                  attachmentMove: candidate,
+                  strategy: "newest",
+                },
+              ]
+            : [],
+          pending: [],
+          rescan,
+        }),
+      }));
+      mocks.post.mockImplementation(async (request: any) => {
+        if (request.action === "review-recover") {
+          if (!lostResponse) {
+            lostResponse = true;
+            throw new Error("Lost recovery response");
+          }
+          return {
+            success: true,
+            results: [
+              {
+                status: "pending-review",
+                citekey: "new",
+                automaticRecoveryPending: true,
+              },
+            ],
+          };
+        }
+        if (
+          request.action === "initial-review-scan-start" &&
+          rescan &&
+          !finished
+        )
+          return {
+            success: false,
+            retryable: true,
+            initialReviewScan: { scanId: "previous", status: "paused" },
+            error: "A Zotero review update is still running",
+          };
+        if (request.action === "attachment-move-complete")
+          return {
+            success: true,
+            results: [{ status: "updated", citekey: "new" }],
+          };
+        return { success: true };
+      });
+      mocks.moveAttachments.mockImplementation(
+        async (_item, _candidate, _base, _strategy, onMutation) => {
+          onMutation();
+          finished = true;
+          available = false;
+          return {
+            moved: [
+              {
+                itemkey: "ATT",
+                from: paths[0].sourcePath,
+                to: paths[0].destinationPath,
+              },
+            ],
+            linked: [],
+          };
+        },
+      );
+      startAutoSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(
+        JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+      ).toEqual([automatic]);
+      expect(
+        mocks.post.mock.calls.filter(
+          ([request]: any[]) => request.action === "review-recover",
+        ).length,
+      ).toBeGreaterThan(1);
+      stopAutoSync();
+      startAutoSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(
+        JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+      ).toEqual([automatic]);
+      available = true;
+      rescan = "manual-while-recovering";
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(mocks.moveAttachments).toHaveBeenCalledTimes(1);
+      expect(
+        JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+      ).toEqual([]);
+    } finally {
+      stopAutoSync();
+      vi.useRealTimers();
+    }
+  });
 
   it("retains interrupted automatic attachment paths for recovery without requesting a review", async () => {
     vi.useFakeTimers();

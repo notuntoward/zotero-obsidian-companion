@@ -2,6 +2,7 @@
 pref("extensions.zotero.zoteroobsidian.obsidianTagName", "obsLitNote");
 pref("extensions.zotero.zoteroobsidian.showPaneToggles", true);
 pref("extensions.zotero.zoteroobsidian.betterBibTeXNoticeShown", false);
+pref("extensions.zotero.zoteroobsidian.pauseAutomaticChecks", false);
 
 pref("hotkeyCreateLitNote", "");
 pref("hotkeySyncTags", "");
