@@ -70,6 +70,8 @@ The Zotero side posts to `http://127.0.0.1:27124/lit-note`:
 - `{ action: "create", data: ZoteroItemPayload[] }`
 - `{ action: "open", data: ZoteroItemPayload[] }`
 - `{ action: "open-note-path", notePath, itemkey }` opens a reported note after rechecking its path and item key, without changing it
+- `{ action: "cleanup-obs-lit-note-tag" }` removes the normalized old indicator from note `zotero_tags` and returns counts and per-note errors
+- `{ action: "fill-missing-library-uris", notes: [{ notePath, itemkey, libraryURI }] }` fills missing note identities after unique Zotero matches are rechecked; the server rechecks uniqueness and note metadata and places new and existing URIs after `zotero_tags` (or `zotero_item_key` when tags are absent)
 - `{ action: "sync", data: ZoteroItemPayload[] }` for automatic reconciliation
 - `{ action: "update", data: ZoteroItemPayload[] }` for previewed metadata updates
 - `{ action: "apply-sync" | "validate-zotero-key", token, data: [ZoteroItemPayload] }` to revalidate an approved plan
@@ -84,7 +86,7 @@ reconciliation can return `prepared` with a one-use token, or `set-zotero-key`
 with a token and expected/selected keys. Re-read the Zotero payload and validate
 the token before applying a plan or changing Zotero; verify saved keys and
 refresh attachment snapshots before continuing. Never treat a prepared plan as
-a completed update. `GET /lit-note-identities` returns indexed identities and
+a completed update. `GET /lit-note-indicator-identities` returns a complete indicator snapshot and a count of notes without item keys; the column swaps snapshots atomically, persists only identities, and shows cached matches as stale when offline. Missing or ambiguous identities remain unknown. `GET /lit-note-identities` returns indexed identities and
 note modification metadata and Obsidian note paths. When citation keys differ, the companion sends a
 `citationKeyCheck` listing matching items in accessible Zotero libraries. It
 rechecks that result before changing Zotero; lookup failures stop the update.
@@ -103,10 +105,10 @@ remain available. Paused scan starts preserve existing reviews and end with the
 `paused` status. Retain the automatic-attachment journal when recovery returns
 `automaticRecoveryPending` until the recovered plan has been durably handed off.
 
-`src/modules/actions.ts` batches all selected items into ONE request, tags the
-items whose status means the note now exists
-(`created | overwritten | opened`), and reports error results in a single
-alert.
+`src/modules/actions.ts` batches all selected items into ONE request, refreshes
+the non-tag note indicator after creation, and reports error results in a single
+alert. The legacy cleanup code removes only the `obsLitNote` Zotero tag and the
+normalized `obslitnote` note value; preserve all other tags.
 
 - Never reintroduce a Zotero-side overwrite/confirm dialog. Decisions about an
   existing or missing note are made in Obsidian's modal so the prompt is never

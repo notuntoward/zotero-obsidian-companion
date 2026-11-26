@@ -30,8 +30,14 @@ External or unindexed links cannot be guaranteed to update.
   not yet shown in the review UI.
 - Zotero showed a connection warning while Obsidian was still starting; startup
   then appeared normal. Investigate if the warning persists or recurs.
-- The user prefers a Zotero note indicator that does not use a tag. Investigate
-  supported alternatives and safe cleanup of the old indicator separately.
+- The literature-note indicator uses a movable Zotero column and an atomic
+  snapshot keyed by library URI and item key, cached locally for offline startup.
+  Hollow diamonds identify stale cached matches. Missing or ambiguous
+  identity is shown as unknown. The user completed both the old-indicator and
+  missing-library-identity cleanups; their settings actions were removed.
+- Initial and manual reviews include literature notes missing an item key, with
+  their paths available for manual correction; the association must be rechecked
+  after a key is added.
 - Next: stage 2, after the remaining adoption decisions are confirmed.
 
 ## Stages and test gates

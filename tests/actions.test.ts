@@ -10,8 +10,8 @@ const mocks = vi.hoisted(() => ({
   getNoteIdentities: vi.fn(),
   findNoteIdentity: vi.fn(),
   addCitationKeyCheck: vi.fn(),
-  getObsidianTagName: vi.fn(() => "obsLitNote"),
-  syncObsidianTags: vi.fn(),
+  refreshNoteIndicators: vi.fn(),
+  syncNoteIndicatorsManually: vi.fn(),
   regenBibtexKey: vi.fn(),
   toggleLeftPane: vi.fn(),
   toggleRightPane: vi.fn(),
@@ -37,9 +37,9 @@ vi.mock("../src/modules/citationKeyCheck", () => ({
   addCitationKeyCheck: mocks.addCitationKeyCheck,
   checkCitationKey: vi.fn(),
 }));
-vi.mock("../src/modules/obsidianTagSync", () => ({
-  getObsidianTagName: mocks.getObsidianTagName,
-  syncObsidianTags: mocks.syncObsidianTags,
+vi.mock("../src/modules/noteIndicators", () => ({
+  refreshNoteIndicators: mocks.refreshNoteIndicators,
+  syncNoteIndicatorsManually: mocks.syncNoteIndicatorsManually,
 }));
 vi.mock("../src/modules/regenBibtex", () => ({
   regenBibtexKey: mocks.regenBibtexKey,
@@ -81,7 +81,7 @@ describe("actions", () => {
     };
     mocks.getMainWindow.mockReturnValue({ focus: vi.fn() });
     mocks.showNotice.mockReturnValue(true);
-    mocks.getObsidianTagName.mockReturnValue("obsLitNote");
+    mocks.refreshNoteIndicators.mockResolvedValue(undefined);
     mocks.ensureObsidianConnection.mockResolvedValue({ ready: true });
     mocks.getNoteIdentities.mockResolvedValue([]);
     mocks.getItemPayload.mockImplementation(async (item: any) => ({
@@ -208,7 +208,7 @@ describe("actions", () => {
   });
 
   describe("createLitNotes", () => {
-    it("sends one batched create request and tags every note that now exists", async () => {
+    it("sends one batched create request without adding Zotero tags", async () => {
       mocks.postToObsidian.mockResolvedValue({
         success: true,
         results: [
@@ -226,9 +226,9 @@ describe("actions", () => {
       expect(body.action).toBe("create");
       expect(body.data.map((p: any) => p.citekey)).toEqual(["a", "b", "c"]);
 
-      expect(items[0].addTag).toHaveBeenCalledWith("obsLitNote");
+      expect(items[0].addTag).not.toHaveBeenCalled();
       expect(items[1].addTag).not.toHaveBeenCalled();
-      expect(items[2].addTag).toHaveBeenCalledWith("obsLitNote");
+      expect(items[2].addTag).not.toHaveBeenCalled();
       expect(mocks.showAlert).not.toHaveBeenCalled();
     });
 
@@ -240,10 +240,8 @@ describe("actions", () => {
 
       await createLitNotes([mkItem("a")]);
 
-      expect(mocks.syncObsidianTags).toHaveBeenCalledOnce();
-      expect(mocks.syncObsidianTags).toHaveBeenCalledWith(
-        (globalThis as any).addon,
-      );
+      expect(mocks.refreshNoteIndicators).toHaveBeenCalledOnce();
+      expect(mocks.refreshNoteIndicators).toHaveBeenCalledWith(true);
     });
 
     it("reports error results in a single alert", async () => {
@@ -258,7 +256,7 @@ describe("actions", () => {
 
       expect(mocks.showAlert).toHaveBeenCalledTimes(1);
       expect(mocks.showAlert.mock.calls[0][2]).toContain("vault write failed");
-      expect(mocks.syncObsidianTags).not.toHaveBeenCalled();
+      expect(mocks.refreshNoteIndicators).not.toHaveBeenCalled();
     });
 
     it("surfaces a legacy { success:false, error } reply", async () => {

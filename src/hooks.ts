@@ -1,4 +1,7 @@
-import { syncObsidianTags } from "./modules/obsidianTagSync";
+import {
+  startNoteIndicators,
+  stopNoteIndicators,
+} from "./modules/noteIndicators";
 import { registerItemMenu } from "./modules/menu";
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
@@ -36,11 +39,7 @@ async function onStartup() {
 
   startAttachmentBaseMonitor();
   startAutoSync();
-  try {
-    await syncObsidianTags(addon);
-  } catch (e) {
-    Zotero.debug("Tag sync error: " + e);
-  }
+  startNoteIndicators();
 }
 
 async function onMainWindowLoad(win: Window): Promise<void> {
@@ -59,10 +58,11 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 function onShutdown(): void {
+  addon.data.alive = false;
+  stopNoteIndicators();
   stopAttachmentBaseMonitor();
   stopAutoSync();
   ztoolkit.unregisterAll();
-  addon.data.alive = false;
   // @ts-ignore - Plugin instance is not typed
   delete Zotero[addon.data.config.addonInstance];
 }

@@ -3,6 +3,7 @@ import {
   addCitationKeyCheck,
   checkCitationKey,
   findNoteIdentity,
+  getIndicatorIdentities,
 } from "../src/modules/citationKeyCheck";
 
 function item(
@@ -37,6 +38,20 @@ describe("citation-key duplicate checking", () => {
         loadDataTypes: vi.fn(),
       },
     };
+  });
+
+  describe("indicator identity response", () => {
+    it("rejects an incomplete peer response rather than treating it as empty", async () => {
+      (globalThis as any).Zotero = {
+        HTTP: {
+          request: vi.fn().mockResolvedValue({
+            status: 200,
+            responseText: JSON.stringify({ success: true, identities: [] }),
+          }),
+        },
+      };
+      await expect(getIndicatorIdentities()).rejects.toThrow("incomplete");
+    });
   });
 
   it("excludes the current item and reports matching items from each library", async () => {

@@ -11,16 +11,55 @@ export interface NoteIdentity {
   size?: number;
 }
 
-export async function getNoteIdentities(): Promise<NoteIdentity[]> {
+async function fetchIdentities(
+  endpoint: string,
+  options?: { timeout: number },
+): Promise<{ identities: NoteIdentity[]; unidentifiedNotes?: number }> {
   const response = await Zotero.HTTP.request(
     "GET",
-    "http://127.0.0.1:27124/lit-note-identities",
+    `http://127.0.0.1:27124/${endpoint}`,
+    options,
   );
   const data = JSON.parse(response.responseText);
-  if (!data.success || !Array.isArray(data.identities)) {
+  if (
+    (response.status !== undefined && response.status !== 200) ||
+    !data.success ||
+    !Array.isArray(data.identities) ||
+    data.identities.some(
+      (identity: any) =>
+        !identity ||
+        typeof identity.itemkey !== "string" ||
+        (identity.libraryURI !== undefined &&
+          typeof identity.libraryURI !== "string"),
+    )
+  ) {
     throw new Error("Obsidian returned invalid literature note identities.");
   }
-  return data.identities;
+  return data;
+}
+
+export async function getNoteIdentities(): Promise<NoteIdentity[]> {
+  return (await fetchIdentities("lit-note-identities")).identities;
+}
+
+export async function getIndicatorIdentities(): Promise<{
+  identities: NoteIdentity[];
+  unidentifiedNotes: number;
+}> {
+  const result = await fetchIdentities("lit-note-indicator-identities", {
+    timeout: 5000,
+  });
+  if (
+    typeof result.unidentifiedNotes !== "number" ||
+    !Number.isInteger(result.unidentifiedNotes) ||
+    result.unidentifiedNotes < 0
+  ) {
+    throw new Error("Obsidian returned an incomplete literature note index.");
+  }
+  return {
+    identities: result.identities,
+    unidentifiedNotes: result.unidentifiedNotes,
+  };
 }
 
 export function findNoteIdentity(

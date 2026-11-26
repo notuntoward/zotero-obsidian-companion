@@ -127,17 +127,65 @@
 
   <html:hr />
   <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
-  <hbox align="center">
-    <html:label data-l10n-id="pref-tag-name" />
-    <html:input
-      id="zotero-prefpane-__addonRef__-obsidianTagName"
-      preference="obsidianTagName"
-      placeholder="obsLitNote"
-      type="text"
-      style="width: 150px; margin-left: 10px"
-    />
-  </hbox>
-
+  <html:fieldset id="zotero-prefpane-__addonRef__-indicatorColors">
+    <html:legend data-l10n-id="pref-indicator-color"></html:legend>
+    <html:label data-l10n-id="pref-color-dark-gold">
+      <html:input
+        type="radio"
+        name="indicatorColor"
+        value="#C99700"
+        data-l10n-id="pref-color-dark-gold"
+      />
+      <html:span aria-hidden="true" style="color: #c99700; font-size: 1.5em"
+        >◆</html:span
+      >
+    </html:label>
+    <html:label data-l10n-id="pref-color-gold">
+      <html:input
+        type="radio"
+        name="indicatorColor"
+        value="#E0B000"
+        data-l10n-id="pref-color-gold"
+      />
+      <html:span aria-hidden="true" style="color: #e0b000; font-size: 1.5em"
+        >◆</html:span
+      >
+    </html:label>
+    <html:label data-l10n-id="pref-color-magenta">
+      <html:input
+        type="radio"
+        name="indicatorColor"
+        value="#D6249F"
+        data-l10n-id="pref-color-magenta"
+      />
+      <html:span aria-hidden="true" style="color: #d6249f; font-size: 1.5em"
+        >◆</html:span
+      >
+    </html:label>
+    <html:label data-l10n-id="pref-color-brown">
+      <html:input
+        type="radio"
+        name="indicatorColor"
+        value="#8B5A2B"
+        data-l10n-id="pref-color-brown"
+      />
+      <html:span aria-hidden="true" style="color: #8b5a2b; font-size: 1.5em"
+        >◆</html:span
+      >
+    </html:label>
+    <html:label data-l10n-id="pref-color-crimson">
+      <html:input
+        type="radio"
+        name="indicatorColor"
+        value="#B00020"
+        data-l10n-id="pref-color-crimson"
+      />
+      <html:span aria-hidden="true" style="color: #b00020; font-size: 1.5em"
+        >◆</html:span
+      >
+    </html:label>
+  </html:fieldset>
+  <html:p data-l10n-id="pref-indicator-description"></html:p>
   <html:hr />
   <label><html:h2 data-l10n-id="pref-review-title"></html:h2></label>
   <hbox align="center">

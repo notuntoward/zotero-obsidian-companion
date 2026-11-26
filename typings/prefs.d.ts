@@ -8,6 +8,8 @@ declare namespace _ZoteroTypes {
   interface Prefs {
     PluginPrefsMap: {
       "obsidianTagName": string;
+      "indicatorColor": string;
+      "indicatorSnapshot": string;
       "showPaneToggles": boolean;
       "betterBibTeXNoticeShown": boolean;
       "pauseAutomaticChecks": boolean;

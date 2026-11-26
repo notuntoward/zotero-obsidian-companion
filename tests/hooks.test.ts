@@ -6,8 +6,9 @@ const mocks = vi.hoisted(() => ({
   monitor: vi.fn(),
   stopMonitor: vi.fn(),
 }));
-vi.mock("../src/modules/obsidianTagSync", () => ({
-  syncObsidianTags: vi.fn(),
+vi.mock("../src/modules/noteIndicators", () => ({
+  startNoteIndicators: vi.fn(),
+  stopNoteIndicators: vi.fn(),
 }));
 vi.mock("../src/modules/menu", () => ({ registerItemMenu: vi.fn() }));
 vi.mock("../src/utils/locale", () => ({

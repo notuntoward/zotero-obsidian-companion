@@ -9,7 +9,10 @@ import {
   findNoteIdentity,
   getNoteIdentities,
 } from "./citationKeyCheck";
-import { getObsidianTagName, syncObsidianTags } from "./obsidianTagSync";
+import {
+  refreshNoteIndicators,
+  syncNoteIndicatorsManually,
+} from "./noteIndicators";
 import { regenBibtexKey } from "./regenBibtex";
 import { ensureObsidianConnection, postToObsidian } from "./obsidianConnection";
 import { toggleLeftPane, toggleRightPane } from "../utils/paneUtils";
@@ -48,11 +51,6 @@ export function regularItems(items: any[]): any[] {
   );
 }
 
-async function tagItem(item: any): Promise<void> {
-  item.addTag(getObsidianTagName(addon));
-  await item.saveTx();
-}
-
 export function paneTogglesEnabled(): boolean {
   const show = Zotero.Prefs.get(
     addon.data.config.prefsPrefix + ".showPaneToggles",
@@ -87,31 +85,6 @@ async function buildPayloads(
     }
   }
   return pairs;
-}
-
-async function tagCreatedNotes(
-  pairs: { item: any; payload: any }[],
-  results: LitNoteItemResult[],
-): Promise<void> {
-  const itemByCitekey = new Map<string, any>();
-  for (const { item, payload } of pairs) {
-    if (payload.citekey) itemByCitekey.set(payload.citekey, item);
-  }
-  for (const result of results) {
-    if (
-      result.status === "created" ||
-      result.status === "overwritten" ||
-      result.status === "opened"
-    ) {
-      const item = itemByCitekey.get(result.citekey);
-      if (!item) continue;
-      try {
-        await tagItem(item);
-      } catch (e) {
-        Zotero.logError(e as any);
-      }
-    }
-  }
 }
 
 /** Extract error results for a single alert instead of one dialog per note. */
@@ -173,7 +146,6 @@ export async function createLitNotes(items: any[]): Promise<void> {
       data: pairs.map((p) => p.payload),
     });
     const results = readResults(json);
-    await tagCreatedNotes(pairs, results);
     if (
       results.some(
         (result) =>
@@ -182,7 +154,7 @@ export async function createLitNotes(items: any[]): Promise<void> {
           result.status === "opened",
       )
     ) {
-      await syncObsidianTags(addon);
+      await refreshNoteIndicators(true);
     }
 
     const errors = collectErrors(json);
@@ -222,6 +194,9 @@ export async function openLitNote(items: any[]): Promise<void> {
       action: "open",
       data: pairs.map((p) => p.payload),
     });
+    if (readResults(json).some((result) => result.status === "created")) {
+      await refreshNoteIndicators(true);
+    }
 
     const errors = collectErrors(json);
     if (errors.length) {
@@ -309,7 +284,7 @@ export function copyItemKeys(items: any[]): void {
 export async function syncHasNoteIndicators(): Promise<void> {
   const win = getMainWindow();
   try {
-    await syncObsidianTags(addon, true);
+    await syncNoteIndicatorsManually();
   } catch (e) {
     Zotero.warn("Menu Error: " + String(e));
     showAlert(win, "Error", String(e));

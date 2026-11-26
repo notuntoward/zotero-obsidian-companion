@@ -1,7 +1,27 @@
 import { KeyModifier } from "zotero-plugin-toolkit";
+import {
+  currentIndicatorColor,
+  refreshIndicatorAppearance,
+} from "./noteIndicators";
 
 export function registerPrefsScripts(_window: Window): void {
   const doc = _window.document;
+  const swatches = doc.querySelectorAll<HTMLInputElement>(
+    `#zotero-prefpane-${addon.data.config.addonRef}-indicatorColors input[type="radio"]`,
+  );
+  const color = currentIndicatorColor();
+  swatches.forEach((swatch) => {
+    swatch.checked = swatch.value === color;
+    swatch.addEventListener("change", () => {
+      if (!swatch.checked) return;
+      Zotero.Prefs.set(
+        `${addon.data.config.prefsPrefix}.indicatorColor`,
+        swatch.value,
+        true,
+      );
+      refreshIndicatorAppearance();
+    });
+  });
   const bbtStatus = doc.getElementById(
     `zotero-prefpane-${addon.data.config.addonRef}-betterBibTeXStatus`,
   );

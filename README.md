@@ -7,7 +7,7 @@
 
 Zotero 10 plugin that pairs with the [Perplexity Saver](https://github.com/notuntoward/obsidian-perplexity-saver) Obsidian plugin.
 
-It allows you to create beautifully formatted literature notes directly from Zotero items into your Obsidian vault, and automatically syncs tag indicators (e.g. `#obsLitNote`) between Zotero items and your existing Obsidian literature notes.
+It creates literature notes from Zotero items and shows a non-tag indicator for associated Obsidian notes.
 
 ## Zotero and Obsidian setup
 
@@ -32,7 +32,7 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 - **Create Lit Note:** Extracts the Zotero item's metadata, abstract, authors, and notes, and sends them to Obsidian. If a note already exists, Obsidian asks what to do.
 - **Open Lit Note:** Tells Obsidian to instantly jump to the literature note corresponding to this Zotero item (based on the citekey).
 - **Update Lit Note:** Previews and refreshes the selected existing notes' Zotero metadata, citation keys, and attachment links in Obsidian.
-- **Sync Has-note Indicators:** Manually forces Zotero to check which literature notes exist in your Obsidian vault and updates the colored tag indicators in Zotero. This also happens automatically on startup and after creating a literature note.
+- **Sync Has-note Indicators:** Refreshes the Obsidian literature note column. It also refreshes automatically on startup, after creating a note, and periodically while both apps are open.
 - **Regen Citation Key:** Uses Better BibTeX to propose a citation key for the selected item(s), which you can edit before saving.
 - **Copy Zotero Item Key:** Copies the selected item's Zotero item key (one key per line for multiple items) to the clipboard.
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
@@ -51,7 +51,7 @@ For eligible existing notes, the companion automatically links Zotero to a match
 
 If multiple Obsidian notes claim the same Zotero item, the companion sends the requested item to Saver for a read-only explanation with links to all matching notes. Saver opens the matching notes side by side and can merge them into the note you keep; Saver requests the item recheck automatically once only one note matches. When a merged note belonged to a different Zotero item and you chose to remove it, the companion moves that item to the Zotero trash and reports the result to Saver. Saver's **Check all literature notes against Zotero again** command makes the companion repeat its startup check without a restart. Bulk note updates still require one unambiguous matching note.
 
-When Zotero reports notes whose items cannot be matched, click a note name to open it in Obsidian. Both plugins must be updated; if the note has moved or its Zotero item key has changed, run the check again.
+When Zotero reports notes whose items cannot be matched, click a note name to open it in Obsidian. Literature notes without an item key appear in Obsidian's **Zotero reviews**; open the note, add a verified key, and run **Check all literature notes against Zotero again**. Both plugins must be updated; if a note has moved or its Zotero item key has changed, run the check again.
 
 Startup finishes previously queued review updates before retrying a busy initial review scan, including while automatic checks are paused. Waiting for those updates is not a scan failure.
 
@@ -65,11 +65,11 @@ If Zotero cannot check whether other attachments reference the originals, the co
 
 Configure settings in Zotero via **Edit -> Settings -> Obsidian**:
 
-- **Keyboard Shortcuts:** Assign custom hotkeys to Create Lit Note, Open Lit Note, Sync Tags, Toggle Panes, Regen BibTeX Key, and Copy Zotero Item Key.
+- **Keyboard Shortcuts:** Assign custom hotkeys to Create Lit Note, Open Lit Note, Sync Has-note Indicators, Toggle Panes, Regen BibTeX Key, and Copy Zotero Item Key.
 - **Literature note checks:** **Pause automatic Zotero and Obsidian checks** stops new automatic consistency scans. A scan already in progress finishes first. Zotero still recovers interrupted updates and processes existing reviews. Use **Check all literature notes against Zotero again** in Obsidian for a manual check while paused, or turn the setting off to resume automatic checks. Pausing can leave citation-key, identity and attachment differences undiscovered. Obsidian hides the review status when nothing needs attention; its absence does not prove a check ran or Zotero is connected. If a manual check does not start, verify that Zotero and the updated companion are running.
 - This setting does not stop has-note indicator syncing or linked-attachment base-directory validation.
-- **Has-note Indicator Tag:**
-  - **Zotero tag showing item has an Obsidian note** (default: `obsLitNote`): The tag assigned to Zotero items when a corresponding literature note exists in Obsidian. The plugin automatically assigns a green color to this tag on startup.
+- **Literature note indicator:** Choose a diamond swatch for dark gold (default), gold, magenta, brown, or crimson. In the Zotero item list, enable **Obsidian literature note** in the column picker, then drag its header to the desired position and resize it. Zotero puts item icons and expand controls in the first column, so allow room for those if the indicator is first; the marker is centered in the remaining space.
+  - A filled diamond indicates a unique note with matching Zotero library URI and item key. Zotero stores the last complete identity snapshot locally; while Obsidian is unavailable or has not yet been checked, a hollow diamond shows a last-known match that may be stale. After the first successful check the snapshot is available across restarts. `?` indicates unavailable, legacy, or ambiguous information; without a snapshot all items are unknown. When an older note has no item key, unmatched items remain unknown until it is identified. No indicator is stored as a Zotero tag.
 - **Zotero Interface:**
   - **Show pane toggling commands on context menu:** Shows or hides the Toggle Left/Right Pane options in the right-click menu.
 
