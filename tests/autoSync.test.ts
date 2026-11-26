@@ -77,6 +77,7 @@ describe("automatic note reconciliation", () => {
     const item = { key: "ABC", isRegularItem: () => true };
     (globalThis as any).Zotero = {
       logError: vi.fn(),
+      debug: vi.fn(),
       Prefs: {
         get: (name: string) => preferences.get(name),
         set: (name: string, value: unknown) => preferences.set(name, value),
@@ -3136,6 +3137,117 @@ describe("automatic note reconciliation", () => {
           }),
         );
         expect(mocks.syncRecovery).not.toHaveBeenCalled();
+        expect(
+          mocks.notice.mock.calls.some(
+            ([, options]) => options?.type === "fail",
+          ),
+        ).toBe(false);
+      } finally {
+        stopAutoSync();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "drains queued automatic attachment work before retrying a busy startup scan (paused: %s)",
+    async (paused) => {
+      vi.useFakeTimers();
+      try {
+        const { zotero, payload } = startupRecoveryFixture();
+        zotero.Prefs.set("extensions.test.reviewJournal", "[]");
+        zotero.Prefs.set("extensions.test.pauseAutomaticChecks", paused);
+        const candidate = {
+          baseDirectory: "C:\\vault",
+          automatic: true,
+          attachments: [
+            {
+              itemkey: "ATT",
+              mode: "stored",
+              basename: "paper.pdf",
+              sourcePath: "C:\\storage\\paper.pdf",
+              destinationPath: "C:\\vault\\paper.pdf",
+              resolution: "keep-note",
+              conflict: true,
+              identical: false,
+              sourceMtime: 1,
+              destinationMtime: 2,
+            },
+          ],
+          linkNoteFiles: [],
+        };
+        Object.assign(payload, {
+          linkedAttachmentBaseDirectory: candidate.baseDirectory,
+          linkedAttachmentBaseDirectoryValidated: true,
+        });
+        let pending = true;
+        zotero.HTTP.request.mockImplementation(
+          async (_method: string, url: string) => ({
+            responseText: JSON.stringify(
+              url.includes("identities")
+                ? { success: true, identities: [] }
+                : {
+                    success: true,
+                    pending: [],
+                    requests: pending
+                      ? [
+                          {
+                            itemkey: "ABC",
+                            libraryURI: "library",
+                            operation: "attachment-move",
+                            automaticAttachment: true,
+                            attachmentMove: candidate,
+                            strategy: "newest",
+                          },
+                        ]
+                      : [],
+                  },
+            ),
+          }),
+        );
+        mocks.moveAttachments.mockResolvedValue({
+          moved: [
+            {
+              itemkey: "ATT",
+              from: candidate.attachments[0].sourcePath,
+              to: candidate.attachments[0].destinationPath,
+            },
+          ],
+          linked: [],
+        });
+        mocks.post.mockImplementation(async (request: any) => {
+          if (request.action === "initial-review-scan-start" && pending)
+            return {
+              success: false,
+              retryable: true,
+              initialReviewScan: { scanId: "previous", status: "complete" },
+              error: "A Zotero review update is still running",
+            };
+          if (request.action === "attachment-move-complete") {
+            pending = false;
+            return {
+              success: true,
+              results: [{ status: "updated", citekey: payload.citekey }],
+            };
+          }
+          return { success: true };
+        });
+        startAutoSync();
+        await vi.advanceTimersByTimeAsync(15000);
+        expect(mocks.moveAttachments).toHaveBeenCalledTimes(1);
+        expect(
+          JSON.parse(zotero.Prefs.get("extensions.test.reviewJournal")),
+        ).toEqual([]);
+        const starts = mocks.post.mock.calls
+          .map(([request]) => request)
+          .filter((request) => request.action === "initial-review-scan-start");
+        expect(starts.length).toBeGreaterThan(1);
+        expect(new Set(starts.map((request) => request.scanId)).size).toBe(1);
+        expect(mocks.post).toHaveBeenLastCalledWith({
+          action: "initial-review-scan-end",
+          scanId: starts[0].scanId,
+          status: paused ? "paused" : "complete",
+        });
         expect(
           mocks.notice.mock.calls.some(
             ([, options]) => options?.type === "fail",

@@ -80,6 +80,7 @@ function automaticChecksPaused(): boolean {
 
 class ReviewJournalClearError extends Error {}
 class ScanSessionMismatchError extends Error {}
+class ScanBusyError extends Error {}
 
 function reviewIdentity(
   entry: Pick<JournalEntry, "itemkey" | "libraryURI">,
@@ -1367,6 +1368,7 @@ async function scanBoundary(payload: object): Promise<void> {
     const message =
       response?.error ||
       "Obsidian did not acknowledge the initial review scan.";
+    if (response?.retryable === true) throw new ScanBusyError(message);
     if (
       (response &&
         response.retryable !== true &&
@@ -1725,6 +1727,14 @@ async function run(): Promise<void> {
     lastWarning = "";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof ScanBusyError) {
+      if (!allowReviewsBeforeScan)
+        Zotero.debug(
+          "[Obsidian sync] Finishing pending review updates before restarting the initial review scan.",
+        );
+      allowReviewsBeforeScan = true;
+      return;
+    }
     if (error instanceof ScanSessionMismatchError) {
       scanSessionMismatch = true;
       scanStarted = false;

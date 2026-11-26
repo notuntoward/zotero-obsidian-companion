@@ -49,6 +49,8 @@ If multiple Obsidian notes claim the same Zotero item, the companion sends the r
 
 When Zotero reports notes whose items cannot be matched, click a note name to open it in Obsidian. Both plugins must be updated; if the note has moved or its Zotero item key has changed, run the check again.
 
+Startup finishes previously queued review updates before retrying a busy initial review scan, including while automatic checks are paused. Waiting for those updates is not a scan failure.
+
 Startup does not repair pre-existing attachment link-mode sync conflicts. Those records remain untouched for manual resolution in Zotero and do not block citation-key or multiple-note reviews, even while Zotero sync is active. The companion's ready notice appears only after the initial review scan has completed and replaces any earlier scan-failure notice; opening another Zotero window does not create another startup notice. Readiness does not mean that Zotero's own sync errors have been resolved.
 
 If an earlier sync-state recovery attempt created `obsidian-companion-attachment-archive/sync-recovery.json`, keep that journal and its archives for later inspection. Startup does not process it. A successful companion build or completed note-review scan does not establish that Zotero's native sync warning is resolved.
