@@ -39,6 +39,10 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 
 Citation-key and attachment changes are also reconciled automatically when both plugins are running, unless automatic checks are paused in Zotero's Obsidian settings. Reviews wait in Obsidian's **Zotero reviews** status-bar entry until selected; Zotero must be running to prepare a review. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
 
+Collection membership is refreshed by **Update Lit Note**, not automatically.
+If Zotero cannot read a collection for an item, note creation and updates stop
+instead of saving an incomplete collection list.
+
 If a response is lost after reconciliation may have changed an item or note, the companion checks the current state on startup. Interrupted automatic attachment work retains its original paths for recovery and replanning without an attachment review. Other unresolved interrupted operations may require attention in **Zotero reviews**.
 
 On startup and when Zotero's Linked Attachment Base Directory changes, the companion checks it against the open Obsidian vault and retries if Obsidian is unavailable. The connection warning closes when the Saver server becomes available, or after 30 seconds if it remains unavailable. The base directory resolves relative linked-file paths; it does not apply to stored attachments or move files. A directory outside the vault does not necessarily mean every linked file is outside it.

@@ -306,6 +306,29 @@ function getAttachmentBaseName(item: any): string | undefined {
   return undefined;
 }
 
+function getCollections(item: any): string[] {
+  const names: string[] = [];
+  const normalized = new Set<string>();
+  const collisions = new Set<string>();
+  for (const id of item.getCollections()) {
+    const collection = Zotero.Collections.get(id);
+    if (!collection || typeof collection.name !== "string" || !collection.name)
+      throw new Error(
+        `Cannot read Zotero collection ${id} for item ${item.key}.`,
+      );
+    const name: string = collection.name;
+    const value = name.toLowerCase().replace(/ /g, "_");
+    if (normalized.has(value)) collisions.add(value);
+    normalized.add(value);
+    names.push(name);
+  }
+  if (collisions.size)
+    Zotero.logError(
+      `[Obsidian sync] Collection names normalize to the same zotero_collections value for item ${item.key}: ${[...collisions].join(", ")}.`,
+    );
+  return names;
+}
+
 export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {
   return {
     title: item.getField("title") || "(untitled)",
@@ -314,6 +337,7 @@ export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {
     libraryURI: Zotero.URI.getLibraryURI(item.libraryID),
     libraryName: Zotero.Libraries.get(item.libraryID).name,
     libraryType: Zotero.Libraries.get(item.libraryID).libraryType,
+    collections: getCollections(item).sort(),
     attachments: getAttachments(item),
     attachmentBaseName: getAttachmentBaseName(item),
     automaticAttachments: true,
@@ -331,13 +355,7 @@ export async function getItemPayload(item: any): Promise<ZoteroItemPayload> {
   const citekey = await getCiteKey(item);
 
   const tags = item.getTags().map((t: any) => t.tag);
-  const collections = item
-    .getCollections()
-    .map((id: number) => {
-      const col = Zotero.Collections.get(id);
-      return col ? col.name : "";
-    })
-    .filter((n: string) => n);
+  const collections = getCollections(item);
 
   const creators = item.getCreators().map((c: any) => ({
     firstName: c.firstName,

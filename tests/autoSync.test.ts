@@ -3915,6 +3915,7 @@ describe("automatic note reconciliation", () => {
       reload: vi.fn(),
       getField: (field: string) =>
         field === "citationKey" ? "Cite2024" : "Paper",
+      getCollections: () => [],
       getAttachments: () => attached,
       getNotes: () => [],
     };

@@ -4,6 +4,9 @@ Zotero plugin that creates and opens Obsidian literature notes by talking to
 the `Perplexity Saver` Obsidian plugin's local HTTP server
 (`C:\Users\scott\repos\obsidian-perplexity-saver`).
 
+For staged Zotero–Obsidian consistency work, use the canonical
+`doc/CONSISTENCY-PLAN.md`; update its state and decisions as the work progresses.
+
 <!-- BEGIN SUITE IMPACT -->
 
 ## Suite impact
@@ -73,6 +76,9 @@ The Zotero side posts to `http://127.0.0.1:27124/lit-note`:
 - `{ action: "review-uncertain", itemkey, libraryURI, operation, title?, attachments?, attachmentCheckError?, attachmentPaths? }` reports an unknown outcome, current attachment details, and any source/destination paths saved before the move; older journal entries may lack those paths
 
 Obsidian replies with `{ success, results: [{ citekey, status, error? }] }`.
+Sync payloads also carry current direct collection names, but automatic
+collection updates are not implemented yet; missing collection data is not an
+empty collection list.
 In addition to `created | overwritten | opened | updated | skipped | missing | error`,
 reconciliation can return `prepared` with a one-use token, or `set-zotero-key`
 with a token and expected/selected keys. Re-read the Zotero payload and validate

@@ -3,6 +3,7 @@ import {
   CitationKeyValidationError,
   getCiteKey,
   getItemPayload,
+  getSyncPayload,
 } from "../src/modules/obsidianPayload";
 
 describe("attachment payloads", () => {
@@ -113,12 +114,12 @@ describe("attachment payloads", () => {
       getFilePath: () => false,
       isFileAttachment: () => true,
     }));
-    const { getSyncPayload } = await import("../src/modules/obsidianPayload");
     const result = await getSyncPayload({
       id: 1,
       key: "ABC",
       libraryID: 1,
       getField: () => "key",
+      getCollections: () => [],
       getAttachments: () => [1, 2],
     });
     expect(result.attachments?.[0]).toMatchObject({
@@ -133,12 +134,12 @@ describe("attachment payloads", () => {
   it("does not treat an unset base directory as validated", async () => {
     const z = (globalThis as any).Zotero;
     z.Prefs.get.mockReturnValue("");
-    const { getSyncPayload } = await import("../src/modules/obsidianPayload");
     const result = await getSyncPayload({
       id: 1,
       key: "ABC",
       libraryID: 1,
       getField: () => "key",
+      getCollections: () => [],
       getAttachments: () => [],
     });
     expect(result.linkedAttachmentBaseDirectory).toBe("");
@@ -147,11 +148,11 @@ describe("attachment payloads", () => {
 
   it("includes Zotero's evaluated attachment filename", async () => {
     const z = (globalThis as any).Zotero;
-    const { getSyncPayload } = await import("../src/modules/obsidianPayload");
     const item = {
       key: "ABC",
       libraryID: 1,
       getField: () => "citekey",
+      getCollections: () => [],
       getAttachments: () => [],
     };
     const result = await getSyncPayload(item);
@@ -169,11 +170,11 @@ describe("attachment payloads", () => {
           throw new Error("template failed");
         });
       else z.Attachments.getFileBaseNameFromItem.mockReturnValue("  ");
-      const { getSyncPayload } = await import("../src/modules/obsidianPayload");
       const result = await getSyncPayload({
         key: "ABC",
         libraryID: 1,
         getField: () => "citekey",
+        getCollections: () => [],
         getAttachments: () => [],
       });
       expect(result.attachmentBaseName).toBeUndefined();
@@ -184,4 +185,102 @@ describe("attachment payloads", () => {
       expect(z.logError.mock.calls[0][0]).toContain("ABC");
     },
   );
+
+  it("uses the same current collection names for full and sync payloads", async () => {
+    const z = (globalThis as any).Zotero;
+    const names = new Map([
+      [1, "Research Papers"],
+      [2, "Methods"],
+    ]);
+    z.Collections.get.mockImplementation((id: number) => ({
+      name: names.get(id),
+    }));
+    const item = {
+      id: 1,
+      key: "ABC",
+      libraryID: 1,
+      itemTypeID: 1,
+      getField: (name: string) => (name === "citationKey" ? "key" : ""),
+      getTags: () => [],
+      getCollections: () => [1, 2],
+      getCreators: () => [],
+      getAttachments: () => [],
+      getNotes: () => [],
+      getRelations: () => ({}),
+    };
+
+    expect((await getItemPayload(item)).collections).toEqual([
+      "Research Papers",
+      "Methods",
+    ]);
+    names.set(1, "Renamed");
+    expect((await getSyncPayload(item)).collections).toEqual([
+      "Methods",
+      "Renamed",
+    ]);
+    item.getCollections = () => [2, 1];
+    expect((await getSyncPayload(item)).collections).toEqual([
+      "Methods",
+      "Renamed",
+    ]);
+    item.getCollections = () => [];
+    expect((await getItemPayload(item)).collections).toEqual([]);
+    expect((await getSyncPayload(item)).collections).toEqual([]);
+  });
+
+  it("reports normalized collection collisions without dropping either name", async () => {
+    const z = (globalThis as any).Zotero;
+    z.Collections.get.mockImplementation((id: number) => ({
+      name: id === 1 ? "Research Papers" : "research_papers",
+    }));
+    const item = {
+      key: "ABC",
+      libraryID: 1,
+      getField: () => "key",
+      getCollections: () => [1, 2],
+      getAttachments: () => [],
+    };
+    expect((await getSyncPayload(item)).collections).toEqual([
+      "Research Papers",
+      "research_papers",
+    ]);
+    expect(z.logError).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "same zotero_collections value for item ABC: research_papers",
+      ),
+    );
+  });
+
+  it.each(["full", "sync"])(
+    "rejects an unavailable collection in the %s payload",
+    async (kind) => {
+      const item = {
+        key: "ABC",
+        libraryID: 1,
+        getField: () => "key",
+        getTags: () => [],
+        getCollections: () => [42],
+        getAttachments: () => [],
+      };
+      await expect(
+        kind === "full" ? getItemPayload(item) : getSyncPayload(item),
+      ).rejects.toThrow("Cannot read Zotero collection 42 for item ABC.");
+    },
+  );
+
+  it("propagates collection lookup failures instead of sending an empty list", async () => {
+    const z = (globalThis as any).Zotero;
+    z.Collections.get.mockImplementation(() => {
+      throw new Error("Collection lookup failed");
+    });
+    await expect(
+      getSyncPayload({
+        key: "ABC",
+        libraryID: 1,
+        getField: () => "key",
+        getCollections: () => [42],
+        getAttachments: () => [],
+      }),
+    ).rejects.toThrow("Collection lookup failed");
+  });
 });
