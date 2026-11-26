@@ -13,6 +13,9 @@ menu-update-lit-note =
 menu-regen-citation-key =
     .label = 重新生成引用键
 
+menu-copy-item-key =
+    .label = 复制 Zotero 条目键
+
 menu-sync-tags =
     .label = 同步笔记标记
 

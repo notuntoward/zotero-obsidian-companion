@@ -38,9 +38,11 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
   };
   ctx._globalThis = ctx;
 
-  Services.scriptloader.loadSubScript(
+  // The startup cache is keyed by the XPI path, not its contents, so a
+  // replaced XPI with the same version would otherwise run the stale bundle.
+  Services.scriptloader.loadSubScriptWithOptions(
     `${rootURI}/content/scripts/__addonRef__.js`,
-    ctx,
+    { target: ctx, ignoreCache: true },
   );
   Zotero.__addonInstance__.hooks.onStartup();
 }

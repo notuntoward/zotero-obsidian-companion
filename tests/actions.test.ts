@@ -55,6 +55,7 @@ import {
   regenerateCitationKeys,
   updateLitNotes,
   regularItems,
+  copyItemKeys,
 } from "../src/modules/actions";
 
 const mkItem = (citekey: string, regular = true) => ({
@@ -94,6 +95,31 @@ describe("actions", () => {
       const regular = mkItem("a");
       const attachment = mkItem("b", false);
       expect(regularItems([regular, attachment])).toEqual([regular]);
+    });
+  });
+
+  describe("copyItemKeys", () => {
+    it("copies regular items' keys, one per line", () => {
+      const addText = vi.fn().mockReturnThis();
+      const copy = vi.fn();
+      (globalThis as any).addon.data.ztoolkit = {
+        Clipboard: vi.fn(function () {
+          return { addText, copy };
+        }),
+      };
+      copyItemKeys([
+        { ...mkItem("a"), key: "J77PYLT4" },
+        { ...mkItem("b", false), key: "ATTACH01" },
+        { ...mkItem("c"), key: "RY5DLRZZ" },
+      ]);
+      expect(addText).toHaveBeenCalledWith(
+        "J77PYLT4\nRY5DLRZZ",
+        "text/unicode",
+      );
+      expect(copy).toHaveBeenCalled();
+      expect(mocks.showNotice).toHaveBeenCalledWith(
+        "Copied 2 Zotero item keys",
+      );
     });
   });
 

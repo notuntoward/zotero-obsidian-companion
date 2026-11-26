@@ -32,11 +32,16 @@ async function fixture() {
     id: 2,
     parentItemID: 1,
     libraryID: 1,
+    attachmentPath: sourcePath,
+    attachmentLinkMode: 2,
     getFilePath: () => currentPath,
-    getFilePathAsync: async () => currentPath,
+    getFilePathAsync: async (): Promise<string | false> => currentPath,
     isFileAttachment: () => true,
     isLinkedFileAttachment: () => true,
     isStoredFileAttachment: () => false,
+    saveTx: vi.fn(async () => {
+      currentPath = attachment.attachmentPath;
+    }),
     relinkAttachmentFile: vi.fn(async (nextPath: string) => {
       currentPath = nextPath;
       return true;
@@ -50,6 +55,7 @@ async function fixture() {
   };
   (globalThis as any).addon = { data: { alive: true } };
   (globalThis as any).Zotero = {
+    DataDirectory: { dir: root },
     Prefs: { get: () => base },
     Libraries: {
       get: () => ({ libraryType: "user" }),
@@ -61,8 +67,20 @@ async function fixture() {
       getAll: vi.fn(async () => [attachment]),
     },
   };
-  (globalThis as any).PathUtils = { filename: path.basename, join: path.join };
+  (globalThis as any).PathUtils = {
+    filename: (value: string) => {
+      if (!path.isAbsolute(value))
+        throw new Error(
+          "PathUtils.filename: Could not initialize path: NS_ERROR_FILE_UNRECOGNIZED_PATH",
+        );
+      return path.basename(value);
+    },
+    join: path.join,
+    parent: path.dirname,
+    isAbsolute: path.isAbsolute,
+  };
   (globalThis as any).IOUtils = {
+    makeDirectory: (target: string) => mkdir(target, { recursive: true }),
     exists: async (target: string) => {
       try {
         await stat(target);
@@ -83,8 +101,20 @@ async function fixture() {
       createHash("sha256")
         .update(await readFile(target))
         .digest("hex"),
-    copy: (source: string, destination: string) =>
-      copyFile(source, destination),
+    getChildren: async (target: string) =>
+      (await readdir(target)).map((name) => path.join(target, name)),
+    copy: async (
+      source: string,
+      destination: string,
+      options?: { recursive?: boolean },
+    ) =>
+      options?.recursive
+        ? (await import("fs/promises")).cp(source, destination, {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+          })
+        : copyFile(source, destination),
     move: rename,
     remove: unlink,
     setModificationTime: async (target: string, modified: number) => {
@@ -104,7 +134,7 @@ async function fixture() {
       attachments: [
         {
           itemkey: "ATTACH1",
-          mode: "linked" as const,
+          mode: "linked" as "linked" | "stored",
           basename: "paper.html",
           sourcePath,
           destinationPath: destination,
@@ -119,6 +149,55 @@ async function fixture() {
       linkNoteFiles: [] as string[],
     },
   };
+}
+
+function configureStored(
+  f: Awaited<ReturnType<typeof fixture>>,
+  source = f.sourcePath,
+) {
+  const clone = {
+    id: 3,
+    key: "LINKED1",
+    setRelations: vi.fn(),
+    libraryID: 1,
+    attachmentLinkMode: 0,
+    attachmentPath: "",
+    dateAdded: "",
+    save: vi.fn(),
+    isLinkedFileAttachment: () => clone.attachmentLinkMode === 2,
+    getFilePathAsync: async () => clone.attachmentPath,
+  };
+  const original = Object.assign(f.attachment, {
+    attachmentLinkMode: 0,
+    getFilePath: () => source,
+    getFilePathAsync: async () => source,
+    isStoredFileAttachment: () => true,
+    isLinkedFileAttachment: () => false,
+    getRelations: () => ({ "owl:sameAs": ["https://example.test/items/A"] }),
+    clone: vi.fn(() => clone),
+    dateAdded: "2024-01-02",
+  });
+  f.request.attachments[0].mode = "stored";
+  const zotero = (globalThis as any).Zotero;
+  zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+  zotero.Items.get = (id: number | number[]) =>
+    Array.isArray(id)
+      ? []
+      : id === 1
+        ? f.item
+        : id === 2
+          ? original
+          : id === 3
+            ? clone
+            : undefined;
+  zotero.Items.moveChildItems = vi.fn();
+  zotero.Items.trash = vi.fn();
+  zotero.URI = { getItemURI: (item: { key: string }) => item.key };
+  zotero.Relations = { getByObject: vi.fn(async () => []) };
+  zotero.Notes = { replaceItemKey: vi.fn() };
+  zotero.Fulltext = { queueItem: vi.fn() };
+  zotero.DB = { executeTransaction: async (run: () => Promise<void>) => run() };
+  return { clone, original, zotero };
 }
 
 async function captureReview(f: Awaited<ReturnType<typeof fixture>>) {
@@ -146,6 +225,364 @@ describe("moveReviewedAttachments", () => {
     vi.restoreAllMocks();
   });
 
+  it.each([false, true])(
+    "copies snapshot resources and rejects an incomplete copy: %s",
+    async (incomplete) => {
+      const f = await fixture();
+      const zotero = (globalThis as any).Zotero;
+      zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+      const sourceDir = path.join(path.dirname(f.sourcePath), "ATTACH1");
+      const targetDir = path.join(f.base, "paper snapshot");
+      await mkdir(sourceDir);
+      await mkdir(path.join(sourceDir, "assets"));
+      const source = path.join(sourceDir, "paper.html");
+      const destination = path.join(targetDir, "paper.html");
+      await writeFile(source, "<img src=assets/image.png>");
+      await writeFile(
+        path.join(sourceDir, "assets", "image.png"),
+        "image bytes",
+      );
+      const { original, clone } = configureStored(f, source);
+      (globalThis as any).PathUtils.parent = path.dirname;
+      (globalThis as any).IOUtils.getChildren = async (dir: string) =>
+        (await readdir(dir)).map((name) => path.join(dir, name));
+      (globalThis as any).IOUtils.copy = async (
+        from: string,
+        to: string,
+        options: { recursive?: boolean },
+      ) =>
+        options?.recursive
+          ? (await import("fs/promises")).cp(from, to, {
+              recursive: true,
+              force: false,
+              errorOnExist: true,
+            })
+          : copyFile(from, to);
+      if (incomplete) {
+        const copy = (globalThis as any).IOUtils.copy;
+        (globalThis as any).IOUtils.copy = async (...args: any[]) => {
+          await copy(...args);
+          await unlink(path.join(targetDir, "assets", "image.png"));
+        };
+      }
+      const candidate = {
+        ...f.request,
+        attachments: [
+          {
+            ...f.request.attachments[0],
+            mode: "stored" as const,
+            sourcePath: source,
+            destinationPath: destination,
+            sourceMtime: (await stat(source)).mtimeMs,
+            snapshotDirectory: true,
+          },
+        ],
+      };
+      if (incomplete) {
+        await expect(
+          moveReviewedAttachments(
+            f.item,
+            candidate,
+            f.base,
+            "newest",
+            undefined,
+            true,
+          ),
+        ).rejects.toThrow();
+        expect(await original.getFilePathAsync()).toBe(source);
+        expect(
+          await readFile(path.join(sourceDir, "assets", "image.png"), "utf8"),
+        ).toBe("image bytes");
+        return;
+      }
+      const result = await moveReviewedAttachments(
+        f.item,
+        candidate,
+        f.base,
+        "newest",
+        undefined,
+        true,
+      );
+      expect(
+        await readFile(path.join(targetDir, "assets", "image.png"), "utf8"),
+      ).toBe("image bytes");
+      expect(
+        await readFile(path.join(sourceDir, "assets", "image.png"), "utf8"),
+      ).toBe("image bytes");
+      expect(await clone.getFilePathAsync()).toBe(destination);
+      expect(
+        await readFile(
+          path.join(
+            path.dirname(result.moved[0].archivePath!),
+            "assets",
+            "image.png",
+          ),
+          "utf8",
+        ),
+      ).toBe("image bytes");
+      expect(result.moved[0]).toMatchObject({
+        preservedSource: true,
+        copied: true,
+        to: destination,
+      });
+    },
+  );
+
+  it("automatically keeps a different nonempty note file and preserves the Zotero original", async () => {
+    const f = await fixture();
+    const zotero = (globalThis as any).Zotero;
+    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    await writeFile(f.destination, "Note file");
+    const candidate = {
+      ...f.request,
+      attachments: [
+        {
+          ...f.request.attachments[0],
+          resolution: "keep-note" as const,
+          destinationMtime: (await stat(f.destination)).mtimeMs,
+        },
+      ],
+    };
+    const result = await moveReviewedAttachments(
+      f.item,
+      candidate,
+      f.base,
+      "newest",
+      undefined,
+      true,
+    );
+    expect(await readFile(f.destination, "utf8")).toBe("Note file");
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(await f.attachment.getFilePathAsync()).toBe(f.destination);
+    expect(result.moved[0]).toMatchObject({
+      itemkey: "ATTACH1",
+      from: f.sourcePath,
+      to: f.destination,
+      newKey: "ATTACH1",
+      preservedSource: true,
+    });
+  });
+
+  it("relinks a missing source to the matching nonempty note file", async () => {
+    const f = await fixture();
+    vi.spyOn(f.attachment, "getFilePathAsync").mockImplementation(async () =>
+      f.attachment.getFilePath() === f.sourcePath
+        ? false
+        : f.attachment.getFilePath(),
+    );
+    (globalThis as any).Zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    await writeFile(f.destination, "Note file");
+    await unlink(f.sourcePath);
+    const candidate = {
+      ...f.request,
+      attachments: [
+        {
+          ...f.request.attachments[0],
+          sourceMissing: true as const,
+          sourceMtime: undefined,
+          resolution: "keep-note" as const,
+          destinationMtime: (await stat(f.destination)).mtimeMs,
+        },
+      ],
+    };
+    const result = await moveReviewedAttachments(
+      f.item,
+      candidate,
+      f.base,
+      "newest",
+      undefined,
+      true,
+    );
+    expect(await f.attachment.getFilePathAsync()).toBe(f.destination);
+    expect(await readFile(f.destination, "utf8")).toBe("Note file");
+    expect(result.moved[0]).toMatchObject({
+      itemkey: "ATTACH1",
+      from: f.sourcePath,
+      to: f.destination,
+      newKey: "ATTACH1",
+      sourceMissing: true,
+    });
+    expect(result.moved[0].preservedSource).toBeUndefined();
+  });
+
+  it("archives remaining resources when the stored main file is missing", async () => {
+    const f = await fixture();
+    const { clone, zotero } = configureStored(f);
+    await unlink(f.sourcePath);
+    await writeFile(
+      path.join(path.dirname(f.sourcePath), "image.png"),
+      "snapshot resource",
+    );
+    await writeFile(f.destination, "Note file");
+    Object.assign(f.request.attachments[0], {
+      sourceMissing: true,
+      sourceMtime: undefined,
+      resolution: "keep-note",
+      destinationMtime: (await stat(f.destination)).mtimeMs,
+    });
+    const archived = vi.fn();
+    const result = await moveReviewedAttachments(
+      f.item,
+      f.request,
+      f.base,
+      "newest",
+      undefined,
+      true,
+      archived,
+    );
+    expect(
+      await readFile(
+        path.join(result.moved[0].archiveDirectory!, "image.png"),
+        "utf8",
+      ),
+    ).toBe("snapshot resource");
+    expect(result.moved[0]).toMatchObject({
+      sourceMissing: true,
+      oldKey: "ATTACH1",
+      newKey: clone.key,
+    });
+    expect(result.moved[0].archivePath).toBeUndefined();
+    expect(archived).toHaveBeenCalledWith(
+      "ATTACH1",
+      result.moved[0].archiveDirectory,
+      true,
+    );
+    expect(zotero.Items.trash).toHaveBeenCalledOnce();
+    expect(await readFile(f.destination, "utf8")).toBe("Note file");
+  });
+
+  it("does not replace a missing stored main file when another item references its resources", async () => {
+    const f = await fixture();
+    const { zotero } = configureStored(f);
+    await unlink(f.sourcePath);
+    await writeFile(f.destination, "Note file");
+    Object.assign(f.request.attachments[0], {
+      sourceMissing: true,
+      sourceMtime: undefined,
+      resolution: "keep-note",
+      destinationMtime: (await stat(f.destination)).mtimeMs,
+    });
+    zotero.Items.getAll.mockResolvedValue([
+      f.attachment,
+      {
+        isFileAttachment: () => true,
+        getFilePath: () => path.join(path.dirname(f.sourcePath), "image.png"),
+      },
+    ]);
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        f.request,
+        f.base,
+        "newest",
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow("another Zotero attachment");
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
+  });
+
+  it("rechecks a missing main file after journaling its resource archive", async () => {
+    const f = await fixture();
+    const { zotero } = configureStored(f);
+    await unlink(f.sourcePath);
+    await writeFile(
+      path.join(path.dirname(f.sourcePath), "image.png"),
+      "resource",
+    );
+    await writeFile(f.destination, "Note file");
+    Object.assign(f.request.attachments[0], {
+      sourceMissing: true,
+      sourceMtime: undefined,
+      resolution: "keep-note",
+      destinationMtime: (await stat(f.destination)).mtimeMs,
+    });
+    const io = (globalThis as any).IOUtils;
+    const exists = io.exists;
+    let journaled = false;
+    io.exists = async (file: string) =>
+      journaled && file === f.sourcePath ? true : exists(file);
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        f.request,
+        f.base,
+        "newest",
+        undefined,
+        true,
+        () => {
+          journaled = true;
+        },
+      ),
+    ).rejects.toThrow("changed before replacement");
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
+    expect(await readFile(f.destination, "utf8")).toBe("Note file");
+  });
+
+  it("refuses a missing-source plan if the Zotero file reappears", async () => {
+    const f = await fixture();
+    (globalThis as any).Zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    await writeFile(f.destination, "Note file");
+    const candidate = {
+      ...f.request,
+      attachments: [
+        {
+          ...f.request.attachments[0],
+          sourceMissing: true as const,
+          sourceMtime: undefined,
+          resolution: "keep-note" as const,
+          destinationMtime: (await stat(f.destination)).mtimeMs,
+        },
+      ],
+    };
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        candidate,
+        f.base,
+        "newest",
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow("changed since review");
+    expect(await f.attachment.getFilePathAsync()).toBe(f.sourcePath);
+  });
+
+  it("refuses a missing-source relink to an empty note attachment", async () => {
+    const f = await fixture();
+    (globalThis as any).Zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    vi.spyOn(f.attachment, "getFilePathAsync").mockImplementation(async () =>
+      f.attachment.getFilePath() === f.sourcePath
+        ? false
+        : f.attachment.getFilePath(),
+    );
+    await writeFile(f.destination, "");
+    await unlink(f.sourcePath);
+    const candidate = {
+      ...f.request,
+      attachments: [
+        {
+          ...f.request.attachments[0],
+          sourceMissing: true as const,
+          sourceMtime: undefined,
+          resolution: "keep-note" as const,
+          destinationMtime: (await stat(f.destination)).mtimeMs,
+        },
+      ],
+    };
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        candidate,
+        f.base,
+        "newest",
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow("note attachment is empty");
+    expect(f.attachment.getFilePath()).toBe(f.sourcePath);
+  });
+
   it("moves a linked file and updates Zotero's attachment path", async () => {
     const f = await fixture();
     const onMutation = vi.fn();
@@ -167,63 +604,292 @@ describe("moveReviewedAttachments", () => {
     });
   });
 
-  it("copies a shared stored attachment and keeps the original item and file", async () => {
+  it("archives snapshot resources when keeping an existing note attachment", async () => {
     const f = await fixture();
-    const clone = {
-      id: 3,
-      key: "LINKED1",
-      libraryID: 1,
-      attachmentLinkMode: 0,
-      attachmentPath: "",
-      saveTx: vi.fn(),
-      eraseTx: vi.fn(),
-    };
-    const storedAttachment = Object.assign(f.attachment, {
-      isLinkedFileAttachment: () => false,
-      isStoredFileAttachment: () => true,
-      clone: vi.fn(() => clone),
-      dateAdded: "2024-01-02",
-      eraseTx: vi.fn(),
+    configureStored(f);
+    await mkdir(path.join(path.dirname(f.sourcePath), "assets"));
+    await writeFile(
+      path.join(path.dirname(f.sourcePath), "assets", "image.png"),
+      "image bytes",
+    );
+    await writeFile(f.destination, "note file");
+    Object.assign(f.request.attachments[0], {
+      resolution: "keep-note",
+      destinationMtime: (await stat(f.destination)).mtimeMs,
     });
-    const otherReference = {
-      isFileAttachment: () => true,
-      getFilePath: () => f.sourcePath,
-    };
-    const zotero = (globalThis as any).Zotero;
-    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
-    zotero.Items.get = (id: number) =>
-      id === 1
-        ? f.item
-        : id === 2
-          ? storedAttachment
-          : id === 3
-            ? clone
-            : undefined;
-    zotero.Items.getAll.mockResolvedValue([storedAttachment, otherReference]);
-
     const result = await moveReviewedAttachments(
       f.item,
       f.request,
       f.base,
       "newest",
+      undefined,
+      true,
     );
+    expect(await readFile(f.destination, "utf8")).toBe("note file");
+    expect(
+      await readFile(
+        path.join(
+          path.dirname(result.moved[0].archivePath!),
+          "assets",
+          "image.png",
+        ),
+        "utf8",
+      ),
+    ).toBe("image bytes");
+  });
 
-    expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
+  it("archives a stored attachment and replaces it without changing its link mode", async () => {
+    const f = await fixture();
+    const { original, clone, zotero } = configureStored(f);
+    const onArchived = vi.fn();
+    const result = await moveReviewedAttachments(
+      f.item,
+      f.request,
+      f.base,
+      "zotero",
+      undefined,
+      true,
+      onArchived,
+    );
     expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
-    expect(storedAttachment.clone).toHaveBeenCalledWith(1, {
-      includeCollections: true,
+    expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
+    expect(await readFile(result.moved[0].archivePath!, "utf8")).toBe(
+      "Zotero file",
+    );
+    expect(onArchived).toHaveBeenCalledWith(
+      "ATTACH1",
+      result.moved[0].archivePath,
+    );
+    expect(original.clone).toHaveBeenCalledOnce();
+    expect(clone.setRelations).toHaveBeenCalledWith({
+      "owl:sameAs": ["https://example.test/items/A"],
     });
-    expect(clone.attachmentPath).toBe(f.destination);
-    expect(storedAttachment.eraseTx).not.toHaveBeenCalled();
-    expect(storedAttachment.relinkAttachmentFile).not.toHaveBeenCalled();
+    expect(original.attachmentLinkMode).toBe(0);
+    expect(await clone.getFilePathAsync()).toBe(f.destination);
+    expect(zotero.Items.trash).toHaveBeenCalledWith([original.id]);
     expect(result.moved[0]).toMatchObject({
       itemkey: "ATTACH1",
-      from: f.sourcePath,
-      to: f.destination,
+      oldKey: "ATTACH1",
       newKey: "LINKED1",
       preservedSource: true,
       copied: true,
     });
+  });
+
+  it("replaces a missing stored attachment without claiming an archive", async () => {
+    const f = await fixture();
+    const { original, clone, zotero } = configureStored(f);
+    vi.spyOn(f.attachment, "getFilePathAsync").mockResolvedValue(false);
+    await unlink(f.sourcePath);
+    await writeFile(f.destination, "note file");
+    Object.assign(f.request.attachments[0], {
+      sourceMissing: true,
+      sourceMtime: undefined,
+      resolution: "keep-note",
+      destinationMtime: (await stat(f.destination)).mtimeMs,
+    });
+    const archived = vi.fn();
+    const result = await moveReviewedAttachments(
+      f.item,
+      f.request,
+      f.base,
+      "newest",
+      undefined,
+      true,
+      archived,
+    );
+    expect(await clone.getFilePathAsync()).toBe(f.destination);
+    expect(original.attachmentLinkMode).toBe(0);
+    expect(zotero.Items.trash).toHaveBeenCalledWith([original.id]);
+    expect(archived).not.toHaveBeenCalled();
+    expect(result.moved[0]).toMatchObject({
+      oldKey: "ATTACH1",
+      newKey: "LINKED1",
+      sourceMissing: true,
+    });
+    expect(result.moved[0].archivePath).toBeUndefined();
+  });
+
+  it("does not replace a stored attachment if its archive fails verification", async () => {
+    const f = await fixture();
+    const { original, zotero } = configureStored(f);
+    const copy = (globalThis as any).IOUtils.copy;
+    (globalThis as any).IOUtils.copy = async (
+      from: string,
+      to: string,
+      options?: { recursive?: boolean },
+    ) => {
+      await copy(from, to, options);
+      if (to.includes("obsidian-companion-attachment-archive"))
+        await writeFile(path.join(to, "paper.html"), "bad copy");
+    };
+    const archived = vi.fn();
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        f.request,
+        f.base,
+        "newest",
+        undefined,
+        true,
+        archived,
+      ),
+    ).rejects.toThrow("A snapshot resource could not be verified");
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(original.clone).not.toHaveBeenCalled();
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
+    expect(archived).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a missing main file if the resource archive cannot be verified", async () => {
+    const f = await fixture();
+    const { original, zotero } = configureStored(f);
+    vi.spyOn(f.attachment, "getFilePathAsync").mockResolvedValue(false);
+    await unlink(f.sourcePath);
+    await writeFile(
+      path.join(path.dirname(f.sourcePath), "resource.png"),
+      "resource",
+    );
+    await writeFile(f.destination, "note file");
+    Object.assign(f.request.attachments[0], {
+      sourceMissing: true,
+      sourceMtime: undefined,
+      resolution: "keep-note",
+      destinationMtime: (await stat(f.destination)).mtimeMs,
+    });
+    const io = (globalThis as any).IOUtils;
+    const copy = io.copy;
+    io.copy = async (source: string, destination: string, options: object) => {
+      await copy(source, destination, options);
+      await writeFile(path.join(destination, "resource.png"), "corrupt");
+    };
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        f.request,
+        f.base,
+        "newest",
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow("A snapshot resource could not be verified");
+    expect(original.clone).not.toHaveBeenCalled();
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
+  });
+
+  it("does not trash a stored attachment referenced by another Zotero item", async () => {
+    const f = await fixture();
+    const { original, zotero } = configureStored(f);
+    const otherReference = {
+      isFileAttachment: () => true,
+      getFilePath: () => f.sourcePath,
+    };
+    zotero.Items.getAll.mockResolvedValue([original, otherReference]);
+    await expect(
+      moveReviewedAttachments(f.item, f.request, f.base, "newest"),
+    ).rejects.toThrow("another Zotero attachment references");
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(original.clone).not.toHaveBeenCalled();
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
+  });
+
+  it("does not trash stored snapshot resources referenced by another attachment", async () => {
+    const f = await fixture();
+    const { original, zotero } = configureStored(f);
+    const resource = path.join(path.dirname(f.sourcePath), "image.png");
+    await writeFile(resource, "resource");
+    zotero.Items.getAll.mockResolvedValue([
+      original,
+      {
+        isFileAttachment: () => true,
+        getFilePath: () => resource,
+      },
+    ]);
+    await expect(
+      moveReviewedAttachments(f.item, f.request, f.base, "newest"),
+    ).rejects.toThrow("another Zotero attachment references");
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
+  });
+
+  it("copies an interrupted attachment without enumerating references or removing its original", async () => {
+    const f = await fixture();
+    const zotero = (globalThis as any).Zotero;
+    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    const clone = {
+      id: 3,
+      key: "LINKED1",
+      libraryID: 1,
+      attachmentPath: "",
+      saveTx: vi.fn(),
+      eraseTx: vi.fn(),
+    };
+    const original = Object.assign(f.attachment, {
+      clone: vi.fn(() => clone),
+      eraseTx: vi.fn(),
+    });
+    zotero.Items.get = (id: number) =>
+      id === 1 ? f.item : id === 2 ? original : id === 3 ? clone : undefined;
+    const onMutation = vi.fn();
+    const result = await moveReviewedAttachments(
+      f.item,
+      f.request,
+      f.base,
+      "zotero",
+      onMutation,
+      true,
+    );
+    expect(onMutation).toHaveBeenCalledOnce();
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
+    expect(zotero.Items.getAll).not.toHaveBeenCalled();
+    expect(original.eraseTx).not.toHaveBeenCalled();
+    expect(original.relinkAttachmentFile).not.toHaveBeenCalled();
+    expect(original.attachmentPath).toBe(f.destination);
+    expect(result.moved[0]).toMatchObject({
+      preservedSource: true,
+      copied: true,
+      newKey: "ATTACH1",
+    });
+  });
+
+  it.each([".", "..", "../paper.html", "nested\\paper.html", "paper\0.html"])(
+    "rejects an invalid reviewed basename %s before recording paths or moving files",
+    async (basename) => {
+      const f = await fixture();
+      f.request.attachments[0].basename = basename;
+      const onMutation = vi.fn();
+      await expect(
+        moveReviewedAttachments(
+          f.item,
+          f.request,
+          f.base,
+          "zotero",
+          onMutation,
+          true,
+        ),
+      ).rejects.toThrow("invalid filename or destination");
+      expect(onMutation).not.toHaveBeenCalled();
+      expect(f.attachment.relinkAttachmentFile).not.toHaveBeenCalled();
+      expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    },
+  );
+
+  it("does not overwrite a different destination during interrupted repair", async () => {
+    const f = await fixture();
+    await writeFile(f.destination, "other file");
+    await captureReview(f);
+    await expect(
+      moveReviewedAttachments(
+        f.item,
+        f.request,
+        f.base,
+        "zotero",
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow("differs");
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(await readFile(f.destination, "utf8")).toBe("other file");
   });
 
   it("copies and preserves the original when Zotero references cannot be checked", async () => {
@@ -261,7 +927,7 @@ describe("moveReviewedAttachments", () => {
     expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
     expect(original.relinkAttachmentFile).not.toHaveBeenCalled();
     expect(original.eraseTx).not.toHaveBeenCalled();
-    expect(clone.attachmentPath).toBe(f.destination);
+    expect(original.attachmentPath).toBe(f.destination);
     expect(result.moved[0]).toMatchObject({
       preservedSource: true,
       copied: true,
@@ -299,7 +965,8 @@ describe("moveReviewedAttachments", () => {
       parentItemID: 1,
       libraryID: 1,
       deleted: false,
-      getFilePathAsync: async () => duplicatePath,
+      attachmentPath: duplicatePath,
+      getFilePathAsync: async () => duplicate.attachmentPath,
       isFileAttachment: () => true,
       isLinkedFileAttachment: () => true,
       isStoredFileAttachment: () => false,
@@ -336,8 +1003,8 @@ describe("moveReviewedAttachments", () => {
     expect(await readFile(duplicatePath, "utf8")).toBe("Zotero file");
     expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
     expect(duplicate.deleted).toBe(false);
-    expect(duplicate.saveTx).not.toHaveBeenCalled();
-    expect(clones.map((clone) => clone.attachmentPath)).toEqual([
+    expect(duplicate.saveTx).toHaveBeenCalledOnce();
+    expect([original.attachmentPath, duplicate.attachmentPath]).toEqual([
       f.destination,
       f.destination,
     ]);
@@ -356,24 +1023,96 @@ describe("moveReviewedAttachments", () => {
     ]);
   });
 
-  it("does not replace a different destination when references cannot be checked", async () => {
+  it("copies to a new name when references cannot be checked and the destination differs", async () => {
     const f = await fixture();
     await writeFile(f.destination, "existing vault file");
     await captureReview(f);
     const zotero = (globalThis as any).Zotero;
     zotero.logError = vi.fn();
     zotero.Items.getAll.mockRejectedValue(new Error("offline"));
+    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    const clone = {
+      id: 3,
+      key: "LINKED1",
+      libraryID: 1,
+      attachmentPath: "",
+      saveTx: vi.fn(),
+      eraseTx: vi.fn(),
+    };
+    const original = Object.assign(f.attachment, {
+      clone: vi.fn(() => clone),
+      eraseTx: vi.fn(),
+    });
+    zotero.Items.get = (id: number) =>
+      id === 1 ? f.item : id === 2 ? original : id === 3 ? clone : undefined;
     const onMutation = vi.fn();
 
-    await expect(
-      moveReviewedAttachments(f.item, f.request, f.base, "zotero", onMutation),
-    ).rejects.toThrow("could not check references");
-    expect(onMutation).not.toHaveBeenCalled();
+    const result = await moveReviewedAttachments(
+      f.item,
+      f.request,
+      f.base,
+      "zotero",
+      onMutation,
+    );
+    const alternate = path.join(f.base, "paper 2.html");
+    expect(result.moved[0]).toMatchObject({
+      to: alternate,
+      copied: true,
+      preservedSource: true,
+      referenceCheckFailed: true,
+    });
+    expect(original.attachmentPath).toBe(alternate);
+    expect(onMutation).toHaveBeenCalledOnce();
     expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
     expect(await readFile(f.destination, "utf8")).toBe("existing vault file");
+    expect(await readFile(alternate, "utf8")).toBe("Zotero file");
   });
 
-  it("keeps the vault copy if removing a failed linked attachment also fails", async () => {
+  it("keeps and links a different note file when reference checking fails", async () => {
+    const f = await fixture();
+    await writeFile(f.destination, "different note file");
+    await captureReview(f);
+    f.request.attachments[0].resolution = "newest";
+    const zotero = (globalThis as any).Zotero;
+    zotero.logError = vi.fn();
+    zotero.Items.getAll.mockRejectedValue(new Error("offline"));
+    const clone = {
+      id: 3,
+      key: "LINKED1",
+      libraryID: 1,
+      attachmentPath: "",
+      saveTx: vi.fn(),
+      eraseTx: vi.fn(),
+    };
+    const original = Object.assign(f.attachment, {
+      clone: vi.fn(() => clone),
+      eraseTx: vi.fn(),
+    });
+    zotero.Items.get = (id: number) =>
+      id === 1 ? f.item : id === 2 ? original : id === 3 ? clone : undefined;
+    zotero.Attachments = {
+      LINK_MODE_LINKED_FILE: 2,
+      linkFromFile: vi.fn(async () => ({ key: "NOTE" })),
+    };
+    const result = await moveReviewedAttachments(
+      f.item,
+      f.request,
+      f.base,
+      "zotero",
+    );
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(await readFile(f.destination, "utf8")).toBe("different note file");
+    expect(await readFile(path.join(f.base, "paper 2.html"), "utf8")).toBe(
+      "Zotero file",
+    );
+    expect(result.linked).toEqual([{ path: f.destination, newKey: "NOTE" }]);
+    expect(zotero.Attachments.linkFromFile).toHaveBeenCalledWith({
+      file: f.destination,
+      parentItemID: f.item.id,
+    });
+  });
+
+  it("keeps both files when saving the Zotero attachment has an unknown outcome", async () => {
     const f = await fixture();
     const zotero = (globalThis as any).Zotero;
     zotero.logError = vi.fn();
@@ -388,15 +1127,56 @@ describe("moveReviewedAttachments", () => {
     };
     const original = Object.assign(f.attachment, {
       clone: vi.fn(() => clone),
+      saveTx: vi.fn().mockRejectedValue(new Error("save failed")),
     });
     zotero.Items.get = (id: number) =>
       id === 1 ? f.item : id === 2 ? original : id === 3 ? clone : undefined;
 
     await expect(
       moveReviewedAttachments(f.item, f.request, f.base, "newest"),
-    ).rejects.toThrow("could not remove the replacement Zotero item");
+    ).rejects.toThrow(
+      "The Zotero attachment may have changed; the original and vault copy were kept",
+    );
     expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
     expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
+  });
+
+  it("restores a stored attachment when setting a linked path is rejected", async () => {
+    const f = await fixture();
+    const zotero = (globalThis as any).Zotero;
+    zotero.logError = vi.fn();
+    zotero.Items.getAll.mockRejectedValue(new Error("offline"));
+    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
+    let mode = 0;
+    let attachmentPath = "storage:paper.html";
+    Object.defineProperties(f.attachment, {
+      attachmentLinkMode: {
+        get: () => mode,
+        set: (value: number) => {
+          mode = value;
+        },
+      },
+      attachmentPath: {
+        get: () => attachmentPath,
+        set: (value: string) => {
+          if (mode === 2)
+            throw new Error("Linked files can only be added to user library");
+          attachmentPath = value;
+        },
+      },
+      isLinkedFileAttachment: { value: () => mode === 2 },
+      isStoredFileAttachment: { value: () => mode === 0 },
+    });
+    f.request.attachments[0].mode = "stored";
+
+    await expect(
+      moveReviewedAttachments(f.item, f.request, f.base, "newest"),
+    ).rejects.toThrow("Zotero attachment references could not be checked");
+    expect(mode).toBe(0);
+    expect(attachmentPath).toBe("storage:paper.html");
+    expect(f.attachment.saveTx).not.toHaveBeenCalled();
+    expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
+    expect(await readdir(f.base)).toEqual([]);
   });
 
   it("keeps the newest existing destination and preserves the other copy as a backup", async () => {
@@ -438,39 +1218,15 @@ describe("moveReviewedAttachments", () => {
     const f = await fixture();
     f.destination = path.join(f.base, "renamed.html");
     f.request.attachments[0].destinationPath = f.destination;
-    const clone = {
-      id: 3,
-      key: "LINKED1",
-      libraryID: 1,
-      attachmentLinkMode: 0,
-      attachmentPath: "",
-      saveTx: vi.fn(),
-      eraseTx: vi.fn(),
+    const { original, clone, zotero } = configureStored(f);
+    const related = {
+      isEditable: () => true,
+      addRelation: vi.fn(),
+      save: vi.fn(),
     };
-    const storedAttachment = Object.assign(f.attachment, {
-      isLinkedFileAttachment: () => false,
-      isStoredFileAttachment: () => true,
-      clone: vi.fn(() => clone),
-      dateAdded: "2024-01-02",
-      eraseTx: vi.fn(),
-    });
-    const zotero = (globalThis as any).Zotero;
-    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
-    zotero.Items.get = (id: number | number[]) =>
-      Array.isArray(id)
-        ? []
-        : id === 2
-          ? storedAttachment
-          : id === 3
-            ? clone
-            : undefined;
-    zotero.Items.moveChildItems = vi.fn();
-    zotero.Items._moveRelations = vi.fn();
-    zotero.Fulltext = { transferItemIndex: vi.fn() };
-    zotero.Notes = { replaceItemKey: vi.fn() };
-    zotero.DB = {
-      executeTransaction: async (run: () => Promise<void>) => run(),
-    };
+    zotero.Relations.getByObject.mockResolvedValue([
+      { subject: related, predicate: "related" },
+    ]);
 
     const { moved } = await moveReviewedAttachments(
       f.item,
@@ -479,55 +1235,46 @@ describe("moveReviewedAttachments", () => {
       "newest",
     );
 
-    expect(storedAttachment.clone).toHaveBeenCalledWith(1, {
+    expect(original.clone).toHaveBeenCalledWith(1, {
       includeCollections: true,
     });
     expect(clone.attachmentLinkMode).toBe(2);
     expect(clone.attachmentPath).toBe(f.destination);
-    expect(zotero.Items._moveRelations).toHaveBeenCalledWith(
-      storedAttachment,
-      clone,
-    );
-    expect(zotero.Fulltext.transferItemIndex).toHaveBeenCalledWith(
-      storedAttachment,
-      clone,
-    );
-    expect(storedAttachment.eraseTx).toHaveBeenCalledOnce();
+    expect(zotero.Items.moveChildItems).toHaveBeenCalledWith(original, clone, {
+      includeTrashed: true,
+    });
+    expect(related.addRelation).toHaveBeenCalledWith("related", "LINKED1");
+    expect(related.save).toHaveBeenCalledOnce();
+    expect(zotero.Fulltext.queueItem).toHaveBeenCalledWith(clone);
+    expect(zotero.Items.trash).toHaveBeenCalledWith([original.id]);
     expect(moved[0]).toMatchObject({ oldKey: "ATTACH1", newKey: "LINKED1" });
   });
 
-  it("restores the source file when Zotero cannot save the linked replacement", async () => {
+  it("keeps the original and archive when Zotero cannot save the linked replacement", async () => {
     const f = await fixture();
-    const clone = {
-      id: 3,
-      key: "LINKED1",
-      libraryID: 1,
-      saveTx: vi.fn().mockRejectedValue(new Error("save failed")),
-      eraseTx: vi.fn(),
-    };
-    const storedAttachment = Object.assign(f.attachment, {
-      isLinkedFileAttachment: () => false,
-      isStoredFileAttachment: () => true,
-      clone: () => clone,
-    });
-    const zotero = (globalThis as any).Zotero;
-    zotero.Attachments = { LINK_MODE_LINKED_FILE: 2 };
-    zotero.Items.get = (id: number | number[]) =>
-      Array.isArray(id)
-        ? []
-        : id === 2
-          ? storedAttachment
-          : id === 3
-            ? clone
-            : undefined;
+    const { clone, original, zotero } = configureStored(f);
+    clone.save.mockRejectedValue(new Error("save failed"));
+    const archived = vi.fn();
 
     await expect(
-      moveReviewedAttachments(f.item, f.request, f.base, "newest"),
+      moveReviewedAttachments(
+        f.item,
+        f.request,
+        f.base,
+        "newest",
+        undefined,
+        true,
+        archived,
+      ),
     ).rejects.toThrow("save failed");
 
     expect(await readFile(f.sourcePath, "utf8")).toBe("Zotero file");
-    expect(await readdir(f.base)).toEqual([]);
-    expect(clone.eraseTx).toHaveBeenCalledOnce();
+    expect(await readFile(archived.mock.calls[0][1], "utf8")).toBe(
+      "Zotero file",
+    );
+    expect(await readFile(f.destination, "utf8")).toBe("Zotero file");
+    expect(original.attachmentLinkMode).toBe(0);
+    expect(zotero.Items.trash).not.toHaveBeenCalled();
   });
 
   it("replaces an empty destination without leaving a backup", async () => {

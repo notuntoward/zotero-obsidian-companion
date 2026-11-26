@@ -299,6 +299,7 @@ export async function resolveNoteKeyChoices(
             "missing",
             "error",
             "pending-review",
+            "attachment-error",
           ].includes(applied.results[0].status)
         ) {
           throw new Error(

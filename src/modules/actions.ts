@@ -285,6 +285,27 @@ export async function regenerateCitationKeys(items: any[]): Promise<void> {
   }
 }
 
+/** Copy the selected items' Zotero item keys, one per line. */
+export function copyItemKeys(items: any[]): void {
+  const keys = regularItems(items)
+    .map((item: any) => String(item.key ?? ""))
+    .filter(Boolean);
+  if (!keys.length) return;
+  try {
+    new addon.data.ztoolkit.Clipboard()
+      .addText(keys.join("\n"), "text/unicode")
+      .copy();
+    showNotice(
+      keys.length === 1
+        ? `Copied Zotero item key ${keys[0]}`
+        : `Copied ${keys.length} Zotero item keys`,
+    );
+  } catch (e) {
+    Zotero.logError(e as any);
+    showAlert(getMainWindow(), "Could not copy item key", String(e));
+  }
+}
+
 export async function syncHasNoteIndicators(): Promise<void> {
   const win = getMainWindow();
   try {

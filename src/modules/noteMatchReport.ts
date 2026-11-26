@@ -9,7 +9,7 @@ export interface NoteMatchIssue {
   checkedLibraries: string[];
   unavailableLibrary?: string;
   matchingLibraries: string[];
-  kind: "missing" | "ambiguous";
+  kind: "missing" | "ambiguous" | "missing-citekey" | "invalid-citekey";
 }
 
 const moreHelp = [
@@ -17,6 +17,7 @@ const moreHelp = [
   "If it is in another Zotero library with the same Zotero item key, select it in Zotero and choose Obsidian → Update Lit Note. Verify the association before confirming.",
   "If the item has a different Zotero item key, it cannot be matched automatically. If it no longer exists, you can keep the Obsidian note; it will not sync.",
   "If multiple Zotero items match, verify which one belongs to the note before updating.",
+  "If a matched Zotero item has a missing or invalid citation key, correct it and restart both applications to check it again.",
 ].join("\n\n");
 
 function commonLibraries(issues: NoteMatchIssue[]): string[] | undefined {
@@ -33,6 +34,13 @@ function commonLibraries(issues: NoteMatchIssue[]): string[] | undefined {
 function reportTitle(issues: NoteMatchIssue[]): string {
   if (!issues.length) return "No Obsidian notes currently need this report.";
   const notes = `${issues.length} Obsidian note${issues.length === 1 ? "" : "s"}`;
+  if (
+    issues.some(
+      (issue) =>
+        issue.kind === "missing-citekey" || issue.kind === "invalid-citekey",
+    )
+  )
+    return `Zotero items need attention for ${notes}`;
   return issues.every(
     (issue) =>
       issue.kind === "missing" &&
@@ -63,9 +71,13 @@ function issueDetail(issue: NoteMatchIssue): string {
   const status =
     issue.kind === "ambiguous"
       ? `Multiple matching active Zotero items: ${issue.matchingLibraries.join(", ")}`
-      : issue.checkedLibraries.length
-        ? "No matching active Zotero item"
-        : "No Zotero libraries could be checked";
+      : issue.kind === "missing-citekey"
+        ? "Matched Zotero item has no citation key. Add one, then restart both applications to check again"
+        : issue.kind === "invalid-citekey"
+          ? "Matched Zotero item has an invalid citation key. Correct it, then restart both applications to check again"
+          : issue.checkedLibraries.length
+            ? "No matching active Zotero item"
+            : "No Zotero libraries could be checked";
   return [
     status,
     `Checked: ${checked}`,
@@ -298,13 +310,21 @@ export function showNoteMatchReport(issues: NoteMatchIssue[]): void {
   const height = Number.isFinite(screen?.availHeight)
     ? Math.min(preferredHeight, screen.availHeight - 40)
     : preferredHeight;
-  dialog.open("Obsidian notes: Zotero items not matched", {
-    width,
-    height,
-    centerscreen: true,
-    resizable: true,
-    fitContent: false,
-  });
+  dialog.open(
+    issues.some(
+      (issue) =>
+        issue.kind === "missing-citekey" || issue.kind === "invalid-citekey",
+    )
+      ? "Obsidian notes: Zotero items need attention"
+      : "Obsidian notes: Zotero items not matched",
+    {
+      width,
+      height,
+      centerscreen: true,
+      resizable: true,
+      fitContent: false,
+    },
+  );
   reportWindow = dialog.window;
 }
 

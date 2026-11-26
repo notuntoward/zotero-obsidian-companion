@@ -4,11 +4,15 @@ export interface JournalEntry {
   operation: string;
   state: "in-flight" | "ack-pending";
   error?: string;
+  repairAttempt?: string;
   attachmentPaths?: Array<{
     itemkey: string;
     sourcePath: string;
     destinationPath: string;
+    archivePath?: string;
+    archiveDirectory?: string;
   }>;
+  repairPaths?: JournalEntry["attachmentPaths"];
 }
 
 declare const Zotero: any;
@@ -16,6 +20,25 @@ declare const addon: any;
 
 function preference(): string {
   return `${addon.data.config.prefsPrefix}.reviewJournal`;
+}
+
+function validPaths(paths: unknown): boolean {
+  return (
+    Array.isArray(paths) &&
+    paths.every((path: unknown) => {
+      if (!path || typeof path !== "object") return false;
+      const candidate = path as Record<string, unknown>;
+      return (
+        typeof candidate.itemkey === "string" &&
+        typeof candidate.sourcePath === "string" &&
+        typeof candidate.destinationPath === "string" &&
+        (candidate.archivePath === undefined ||
+          typeof candidate.archivePath === "string") &&
+        (candidate.archiveDirectory === undefined ||
+          typeof candidate.archiveDirectory === "string")
+      );
+    })
+  );
 }
 
 export function readReviewJournal(): JournalEntry[] {
@@ -50,17 +73,11 @@ export function readReviewJournal(): JournalEntry[] {
         !entry.libraryURI ||
         typeof entry.operation !== "string" ||
         (entry.error !== undefined && typeof entry.error !== "string") ||
+        (entry.repairAttempt !== undefined &&
+          (typeof entry.repairAttempt !== "string" || !entry.repairAttempt)) ||
         (entry.attachmentPaths !== undefined &&
-          (!Array.isArray(entry.attachmentPaths) ||
-            entry.attachmentPaths.some((path: unknown) => {
-              if (!path || typeof path !== "object") return true;
-              const candidate = path as Record<string, unknown>;
-              return (
-                typeof candidate.itemkey !== "string" ||
-                typeof candidate.sourcePath !== "string" ||
-                typeof candidate.destinationPath !== "string"
-              );
-            }))) ||
+          !validPaths(entry.attachmentPaths)) ||
+        (entry.repairPaths !== undefined && !validPaths(entry.repairPaths)) ||
         !["in-flight", "ack-pending"].includes(entry.state),
     ) ||
     new Set(

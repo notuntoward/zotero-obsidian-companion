@@ -18,6 +18,7 @@ export function registerPrefsScripts(_window: Window): void {
     "hotkeyToggleLeftPane",
     "hotkeyToggleRightPane",
     "hotkeyRegenBibtexKey",
+    "hotkeyCopyItemKey",
   ];
 
   for (const pref of prefs) {

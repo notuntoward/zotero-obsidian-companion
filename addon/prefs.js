@@ -9,3 +9,4 @@ pref("hotkeyToggleLeftPane", "");
 pref("hotkeyToggleRightPane", "");
 pref("hotkeyOpenLitNote", "");
 pref("hotkeyRegenBibtexKey", "");
+pref("hotkeyCopyItemKey", "");

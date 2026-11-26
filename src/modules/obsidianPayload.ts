@@ -68,6 +68,7 @@ export interface ZoteroItemPayload {
   attachments?: ZoteroAttachment[];
   linkedAttachmentBaseDirectory?: string;
   linkedAttachmentBaseDirectoryValidated?: boolean;
+  automaticAttachments?: boolean;
   /** Filename (without extension) Zotero's renaming template produces for this item. */
   attachmentBaseName?: string;
   relations?: ZoteroRelation[];
@@ -77,6 +78,8 @@ export interface ZoteroItemPayload {
     attachmentMoves: Array<{ itemkey: string; from: string; to: string }>;
   };
 }
+
+export class CitationKeyValidationError extends Error {}
 
 export async function getCiteKey(item: any): Promise<string> {
   let citekey = "";
@@ -102,13 +105,13 @@ export async function getCiteKey(item: any): Promise<string> {
     // eslint-disable-next-line no-control-regex
     const windowsInvalidChars = /[<>:"/\\|?*\x00-\x1F]/;
     if (windowsInvalidChars.test(citekey)) {
-      throw new Error(
+      throw new CitationKeyValidationError(
         `Cannot create note for citation key '${citekey}'.\n\nReason: Filename contains invalid character(s). These characters cannot be used in filenames on Windows.\n\nPlease edit the citation key in Zotero to fix this issue.`,
       );
     }
     const reservedPattern = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
     if (reservedPattern.test(citekey)) {
-      throw new Error(
+      throw new CitationKeyValidationError(
         `Cannot create note for citation key '${citekey}'.\n\nReason: '${citekey}' is a reserved Windows device name.\n\nPlease edit the citation key in Zotero to fix this issue.`,
       );
     }
@@ -313,6 +316,7 @@ export async function getSyncPayload(item: any): Promise<ZoteroItemPayload> {
     libraryType: Zotero.Libraries.get(item.libraryID).libraryType,
     attachments: getAttachments(item),
     attachmentBaseName: getAttachmentBaseName(item),
+    automaticAttachments: true,
     linkedAttachmentBaseDirectory: String(
       Zotero.Prefs.get("baseAttachmentPath") || "",
     ),

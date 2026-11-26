@@ -3,6 +3,7 @@ import {
   createLitNotes,
   openLitNote,
   regenerateCitationKeys,
+  copyItemKeys,
   syncHasNoteIndicators,
   toggleLeftPaneAction,
   toggleRightPaneAction,
@@ -39,6 +40,7 @@ export function registerHotkeys() {
         { key: "hotkeyToggleLeftPane", action: handleToggleLeftPane },
         { key: "hotkeyToggleRightPane", action: handleToggleRightPane },
         { key: "hotkeyRegenBibtexKey", action: handleRegenBibtexKey },
+        { key: "hotkeyCopyItemKey", action: handleCopyItemKey },
       ];
 
       for (const pref of prefs) {
@@ -82,4 +84,8 @@ async function handleToggleRightPane() {
 
 async function handleRegenBibtexKey() {
   await regenerateCitationKeys(getSelectedItems());
+}
+
+async function handleCopyItemKey() {
+  copyItemKeys(getSelectedItems());
 }

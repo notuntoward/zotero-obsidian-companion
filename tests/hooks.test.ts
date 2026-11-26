@@ -55,20 +55,26 @@ describe("startup notices", () => {
   });
   afterEach(() => hooks.onShutdown());
 
-  it("replaces the ready notice when the connection warning is shown", async () => {
+  it("does not announce readiness before the initial reconciliation scan", async () => {
     await hooks.onStartup();
-    expect(mocks.show).toHaveBeenCalledWith("ready");
-    expect(mocks.dismiss).not.toHaveBeenCalled();
-    const warningShown = mocks.monitor.mock.calls[0][0];
-    warningShown();
-    expect(mocks.dismiss).toHaveBeenCalledOnce();
-    await hooks.onMainWindowLoad(win);
-    expect(mocks.show).toHaveBeenCalledOnce();
+    expect(mocks.monitor).toHaveBeenCalledOnce();
+    expect(mocks.show).not.toHaveBeenCalled();
   });
 
-  it("keeps the normal ready notice when there is no connection warning", async () => {
+  it("does not duplicate startup notices when another main window loads", async () => {
     await hooks.onStartup();
-    expect(mocks.show).toHaveBeenCalledOnce();
-    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await hooks.onMainWindowLoad(win);
+    expect(mocks.show).not.toHaveBeenCalled();
+  });
+});
+
+describe("bootstrap", () => {
+  it("loads the bundle without the path-keyed startup cache", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("addon/bootstrap.js", "utf8");
+    expect(source).toMatch(
+      /loadSubScriptWithOptions\([^)]*__addonRef__\.js[^)]*ignoreCache: true/s,
+    );
+    expect(source).not.toMatch(/\bloadSubScript\(/);
   });
 });

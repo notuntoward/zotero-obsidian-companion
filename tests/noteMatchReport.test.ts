@@ -259,4 +259,23 @@ describe("unmatched note report", () => {
       dialog.elements.get("note-match-list")!.children[0].textContent,
     ).toContain("ITEM2");
   });
+  it("clearly reports a matched item with no citation key", () => {
+    const missingKey: NoteMatchIssue = {
+      ...issue(1),
+      kind: "missing-citekey",
+      matchingLibraries: ["My Library"],
+    };
+    showNoteMatchReport([missingKey]);
+    const dialog = DialogStub.current;
+    dialog.data.loadCallback();
+    expect(dialog.elements.get("note-match-summary")!.textContent).toContain(
+      "need attention",
+    );
+    expect(dialog.elements.get("note-match-list")!.textContent).toContain(
+      "no citation key",
+    );
+    expect(formatNoteMatchReport([missingKey])).toContain(
+      "Add one, then restart both applications",
+    );
+  });
 });

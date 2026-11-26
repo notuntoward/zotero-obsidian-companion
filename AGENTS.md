@@ -50,6 +50,10 @@ source release to verify the configured artifact and project metadata.
 - Zotero loads the installed XPI, so a source build is not live until the XPI
   is replaced. Zotero must be closed to overwrite
   `%APPDATA%\Zotero\Zotero\Profiles\0vqgu3uw.default\extensions\zotero-obsidian-companion@notuntoward.xpi`.
+  Back it up first under the profile's `obsidian-companion-xpi-backups\`, and
+  confirm the installed file's SHA-256 matches `build/obsidian.xpi`. The
+  version stays `0.0.1`, so follow the global "Zotero plugins" rule for the
+  startup cache.
 
 ## Zotero version
 
@@ -100,7 +104,25 @@ alert.
 - Changing the payload shape or statuses requires updating both plugins and
   both test suites.
 
-## Zotero-specific gotchas
+## Generic Zotero plugin rules
+
+Generic Zotero plugin lessons (startup-cache pitfalls, install checks, menus
+and localization, hotkeys, read-only `zotero.sqlite` inspection, Zotero 10
+API changes) live in the global rule "Zotero plugins" in
+`~/.config/kilo/AGENTS.md`, managed through chezmoi from
+`notuntoward/kilo-dotfiles`. Change them there, not here.
+
+## Companion-specific notes
+
+- `addon/bootstrap.js` loads the bundle with `ignoreCache: true`;
+  `tests/hooks.test.ts` guards it.
+- Every user command appears in the item context menu (`src/modules/menu.ts`)
+  and can have a shortcut. When adding a command, update `actions.ts`,
+  `menu.ts`, `hotkeys.ts`, `addon/prefs.js`, `preferences.xhtml`,
+  `preferenceScript.ts`, both `mainWindow.ftl` locales, and the README. Only
+  the pane toggles are hidden, by the "Show pane toggling commands" preference.
+
+## Zotero gotchas in this plugin
 
 - Item menus use Zotero's native `Zotero.MenuManager.registerMenu`, registered
   once in `onStartup` (not per window). The toolkit's `Menu` helper was removed

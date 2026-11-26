@@ -13,6 +13,9 @@ menu-update-lit-note =
 menu-regen-citation-key =
     .label = Regen Citation Key
 
+menu-copy-item-key =
+    .label = Copy Zotero Item Key
+
 menu-sync-tags =
     .label = Sync Has-note Indicators
 

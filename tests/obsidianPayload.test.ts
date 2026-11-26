@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getCiteKey, getItemPayload } from "../src/modules/obsidianPayload";
+import {
+  CitationKeyValidationError,
+  getCiteKey,
+  getItemPayload,
+} from "../src/modules/obsidianPayload";
 
 describe("attachment payloads", () => {
   beforeEach(() => {
@@ -48,6 +52,15 @@ describe("attachment payloads", () => {
     };
     expect(await getCiteKey({ id: 4, getField: () => "" })).toBe("bbt-key");
   });
+
+  it.each(["bad:key", "CON"])(
+    "classifies invalid citation key %s as a terminal data issue",
+    async (key) => {
+      await expect(
+        getCiteKey({ id: 1, getField: () => key }),
+      ).rejects.toBeInstanceOf(CitationKeyValidationError);
+    },
+  );
 
   it("distinguishes unresolved file attachments with URLs from web links", async () => {
     const item = {

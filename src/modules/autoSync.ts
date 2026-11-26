@@ -1,4 +1,8 @@
-import { getAttachments, getSyncPayload } from "./obsidianPayload";
+import {
+  CitationKeyValidationError,
+  getAttachments,
+  getSyncPayload,
+} from "./obsidianPayload";
 import type { ZoteroAttachment, ZoteroItemPayload } from "./obsidianPayload";
 import { isObsidianServerReady, postToObsidian } from "./obsidianConnection";
 import { resolveNoteKeyChoices } from "./resolveNoteKeys";
@@ -7,7 +11,8 @@ import type { NoteIdentity } from "./citationKeyCheck";
 import { moveReviewedAttachments } from "./attachmentMover";
 import type { AttachmentMoveRequest } from "./attachmentMover";
 import { getAttachmentBaseValidationState } from "./attachmentBaseMonitor";
-import { showNotice } from "../utils/progressNotice";
+import { showDismissibleNotice } from "../utils/progressNotice";
+import { getString } from "../utils/locale";
 import { showNoteMatchReport, closeNoteMatchReport } from "./noteMatchReport";
 import type { NoteMatchIssue } from "./noteMatchReport";
 import {
@@ -31,12 +36,20 @@ const pendingBlocked = new Map<string, string>();
 const SETTLE_MS = 2000;
 let lastWarning = "";
 let lastReport = "";
-let observerID: string | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let running = false;
-let requested = false;
+let scanId = "";
+let scanStarted = false;
+let scanWorkDone = false;
+let dismissSyncNotice: (() => void) | undefined;
+let scanComplete = false;
+let scanSessionMismatch = false;
+let scanIssue = "";
+const scannedIdentities = new Set<string>();
+const reportedUncertain = new Set<string>();
 let reviewTimer: ReturnType<typeof setTimeout> | undefined;
 let reviewPolling = false;
+let processingReviews = false;
 const inFlightReviews = new Set<string>();
 const inFlightSyncs = new Set<string>();
 const warnedUncertain = new Set<string>();
@@ -46,13 +59,66 @@ const uncertainAttachmentErrors = new Map<string, string>();
 const uncertainReportWarning =
   "Could not report interrupted reviews to Obsidian. The affected items remain blocked; keep Zotero open and reconnect to Obsidian.";
 const acknowledgementErrors = new Map<string, string>();
+const recoveryErrors = new Map<string, string>();
+const deferredAttachmentRecovery = new Set<string>();
+const inFlightItemTrash = new Set<string>();
+let lastRescan = "";
+let lastObsidianSession = "";
 
 class ReviewJournalClearError extends Error {}
+class ScanSessionMismatchError extends Error {}
 
 function reviewIdentity(
   entry: Pick<JournalEntry, "itemkey" | "libraryURI">,
 ): string {
   return JSON.stringify([entry.libraryURI, entry.itemkey]);
+}
+
+function recordAttachmentPaths(
+  entry: JournalEntry,
+  request: AttachmentMoveRequest,
+  repair: boolean,
+): void {
+  const journal = readReviewJournal();
+  const current = journal.find((candidate) => sameReview(candidate, entry));
+  if (!current || current.state !== "in-flight")
+    throw new Error(
+      "The attachment review record changed before files were copied.",
+    );
+  const paths = request.attachments.map(
+    ({ itemkey, sourcePath, destinationPath }) => ({
+      itemkey,
+      sourcePath,
+      destinationPath,
+    }),
+  );
+  if (repair) current.repairPaths = [...(current.repairPaths || []), ...paths];
+  else current.attachmentPaths = paths;
+  writeReviewJournal(journal);
+  if (repair) entry.repairPaths = current.repairPaths;
+  else entry.attachmentPaths = paths;
+}
+
+function recordAttachmentArchive(
+  entry: JournalEntry,
+  itemkey: string,
+  archivePath: string,
+  repair: boolean,
+  resourcesOnly = false,
+): void {
+  const journal = readReviewJournal();
+  const current = journal.find((candidate) => sameReview(candidate, entry));
+  const paths = repair ? current?.repairPaths : current?.attachmentPaths;
+  const path = paths?.find((candidate) => candidate.itemkey === itemkey);
+  if (!current || current.state !== "in-flight" || !path)
+    throw new Error(
+      "The attachment journal changed before the archive was recorded.",
+    );
+  if (resourcesOnly) path.archiveDirectory = archivePath;
+  else path.archivePath = archivePath;
+  writeReviewJournal(journal);
+  if (repair) entry.repairPaths = paths;
+  else entry.attachmentPaths = paths;
 }
 
 async function postReview(payload: object): Promise<any> {
@@ -81,12 +147,14 @@ function uncertainMessage(entry: JournalEntry): string {
 function forgetUncertain(entry: JournalEntry): void {
   const key = reviewIdentity(entry);
   warnedUncertain.delete(key);
+  reportedUncertain.delete(key);
   uncertainReportErrors.delete(key);
   uncertainTitleErrors.delete(key);
   uncertainAttachmentErrors.delete(key);
   if (!uncertainReportErrors.size && lastWarning === uncertainReportWarning)
     lastWarning = "";
   acknowledgementErrors.delete(key);
+  recoveryErrors.delete(key);
 }
 
 async function reportUncertain(
@@ -175,8 +243,13 @@ async function reportUncertain(
       ...(entry.error ? { error: entry.error } : {}),
       ...(attachments ? { attachments } : {}),
       ...(attachmentCheckError ? { attachmentCheckError } : {}),
-      ...(entry.attachmentPaths
-        ? { attachmentPaths: entry.attachmentPaths }
+      ...(entry.attachmentPaths || entry.repairPaths
+        ? {
+            attachmentPaths: [
+              ...(entry.attachmentPaths || []),
+              ...(entry.repairPaths || []),
+            ],
+          }
         : {}),
     });
     if (!response?.success)
@@ -184,6 +257,7 @@ async function reportUncertain(
         response?.error || "Obsidian did not acknowledge the uncertain review.",
       );
     uncertainReportErrors.delete(key);
+    reportedUncertain.add(key);
     if (!uncertainReportErrors.size && lastWarning === uncertainReportWarning)
       lastWarning = "";
   } catch (error) {
@@ -247,13 +321,21 @@ function isAttachmentMoveRequest(
         typeof attachment.basename === "string" &&
         typeof attachment.sourcePath === "string" &&
         typeof attachment.destinationPath === "string" &&
-        ["move", "newest", "keep-destination", "trash"].includes(
+        (attachment.snapshotDirectory === undefined ||
+          attachment.snapshotDirectory === true) &&
+        (attachment.sourceMissing === undefined ||
+          attachment.sourceMissing === true) &&
+        ["move", "newest", "keep-destination", "keep-note", "trash"].includes(
           attachment.resolution as string,
         ) &&
         typeof attachment.conflict === "boolean" &&
         typeof attachment.identical === "boolean" &&
-        typeof attachment.sourceMtime === "number" &&
-        Number.isFinite(attachment.sourceMtime) &&
+        (attachment.sourceMissing === true
+          ? attachment.resolution === "keep-note" &&
+            attachment.sourceMtime === undefined &&
+            attachment.snapshotDirectory === undefined
+          : typeof attachment.sourceMtime === "number" &&
+            Number.isFinite(attachment.sourceMtime)) &&
         (attachment.destinationMtime === undefined ||
           (typeof attachment.destinationMtime === "number" &&
             Number.isFinite(attachment.destinationMtime)))
@@ -265,18 +347,25 @@ function isAttachmentMoveRequest(
 function warn(message: string): void {
   Zotero.logError(`[Obsidian sync] ${message}`);
   if (lastWarning !== message) {
-    showNotice(`Literature note sync: ${message}`, {
-      type: "fail",
-      timeoutMs: 12000,
-    });
+    dismissSyncNotice?.();
+    dismissSyncNotice = showDismissibleNotice(
+      `Literature note sync: ${message}`,
+      {
+        type: "fail",
+        timeoutMs: 12000,
+      },
+    );
     lastWarning = message;
   }
 }
 
-export async function syncExistingNotesOnce(): Promise<void> {
-  if (!addon.data.alive) return;
+export async function syncExistingNotesOnce(
+  sessionScan = false,
+): Promise<boolean> {
+  if (!addon.data.alive) return false;
   readReviewJournal();
-  if (!(await isObsidianServerReady())) return;
+  if (!(await isObsidianServerReady())) return false;
+  let complete = true;
   const identities = await getNoteIdentities();
   const libraries = Zotero.Libraries.getAll().filter(
     (library: any) =>
@@ -287,11 +376,12 @@ export async function syncExistingNotesOnce(): Promise<void> {
   const identifiers: string[] = [];
   const snapshots: string[] = [];
   const issues: NoteMatchIssue[] = [];
+  const seenIdentities = new Set<string>();
   for (const identity of identities) {
-    if (!addon.data.alive) return;
+    if (!addon.data.alive) return false;
     if (!identity.itemkey) continue;
     const id = `${identity.libraryURI || "legacy"}:${identity.itemkey}`;
-    if (identifiers.includes(id)) continue;
+    if (sessionScan && scannedIdentities.has(id)) continue;
     const candidates = [];
     const checkedLibraries: string[] = [];
     const matchingLibraries: string[] = [];
@@ -331,6 +421,23 @@ export async function syncExistingNotesOnce(): Promise<void> {
       warn(
         `Could not read Zotero item ${identity.itemkey}: ${error instanceof Error ? error.message : String(error)}`,
       );
+      if (error instanceof CitationKeyValidationError) {
+        issues.push({
+          notePath: identity.notePath,
+          itemkey: identity.itemkey,
+          checkedLibraries,
+          matchingLibraries,
+          kind: "invalid-citekey",
+        });
+      } else {
+        complete = false;
+        scanIssue = `Could not read Zotero item ${identity.itemkey}.`;
+      }
+      continue;
+    }
+    const resolvedId = `${payload.libraryURI || "legacy"}:${payload.itemkey}`;
+    if (sessionScan && scannedIdentities.has(resolvedId)) {
+      scannedIdentities.add(id);
       continue;
     }
     if (
@@ -339,12 +446,26 @@ export async function syncExistingNotesOnce(): Promise<void> {
           entry.itemkey === payload.itemkey &&
           entry.libraryURI === payload.libraryURI,
       )
-    )
-      continue;
-    if (!payload.citekey) {
-      warn(`Zotero item ${identity.itemkey} has no citation key.`);
+    ) {
+      if (sessionScan) {
+        scannedIdentities.add(id);
+        scannedIdentities.add(resolvedId);
+      }
       continue;
     }
+    if (!payload.citekey) {
+      warn(`Zotero item ${identity.itemkey} has no citation key.`);
+      issues.push({
+        notePath: identity.notePath,
+        itemkey: identity.itemkey,
+        checkedLibraries,
+        matchingLibraries,
+        kind: "missing-citekey",
+      });
+      continue;
+    }
+    if (seenIdentities.has(resolvedId)) continue;
+    seenIdentities.add(resolvedId);
     const snapshot = JSON.stringify({ identity, payload });
     const retained = deferred.get(id);
     if (
@@ -358,15 +479,21 @@ export async function syncExistingNotesOnce(): Promise<void> {
     const previous = observed.get(id);
     if (!previous || previous.snapshot !== snapshot) {
       observed.set(id, { snapshot, since: Date.now() });
+      complete = false;
       continue;
     }
-    if (Date.now() - previous.since < SETTLE_MS) continue;
+    if (Date.now() - previous.since < SETTLE_MS) {
+      complete = false;
+      continue;
+    }
     try {
       await addCitationKeyCheck(candidates[0], payload, identity);
     } catch (error) {
       warn(
         `Could not check the Obsidian citation key for ${identity.itemkey}: ${error instanceof Error ? error.message : String(error)}`,
       );
+      scanIssue = `Could not check the Obsidian citation key for ${identity.itemkey}.`;
+      complete = false;
       continue;
     }
     identifiers.push(id);
@@ -388,9 +515,12 @@ export async function syncExistingNotesOnce(): Promise<void> {
       warn(
         `Could not show the Obsidian note report: ${error instanceof Error ? error.message : String(error)}`,
       );
+      scanIssue = "Could not show the Obsidian note report.";
+      complete = false;
     }
   }
-  if (!payloads.length || !addon.data.alive) return;
+  if (!payloads.length || !addon.data.alive)
+    return complete && addon.data.alive;
   const journal = readReviewJournal();
   for (let i = payloads.length - 1; i >= 0; i--) {
     if (
@@ -406,7 +536,7 @@ export async function syncExistingNotesOnce(): Promise<void> {
       identifiers.splice(i, 1);
     }
   }
-  if (!payloads.length) return;
+  if (!payloads.length) return complete;
   const syncEntries: JournalEntry[] = payloads.map((payload) => {
     if (!payload.itemkey || !payload.libraryURI)
       throw new Error(
@@ -444,7 +574,8 @@ export async function syncExistingNotesOnce(): Promise<void> {
       warn(
         `Could not prepare automatic sync with Obsidian: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return;
+      scanIssue = error instanceof Error ? error.message : String(error);
+      return false;
     }
     actionable = syncEntries.filter((_entry, i) =>
       ["prepared", "set-zotero-key"].includes(result.results[i].status),
@@ -477,6 +608,7 @@ export async function syncExistingNotesOnce(): Promise<void> {
             "pending-review",
             "missing",
             "error",
+            "attachment-error",
           ].includes(entry.status),
       )
     )
@@ -485,11 +617,25 @@ export async function syncExistingNotesOnce(): Promise<void> {
       );
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+      if (entry.status === "error") {
+        complete = false;
+        scanIssue =
+          entry.error || `Could not reconcile Zotero item ${identifiers[i]}.`;
+      } else if (sessionScan) {
+        scannedIdentities.add(identifiers[i]);
+        scannedIdentities.add(
+          `${payloads[i].libraryURI || "legacy"}:${payloads[i].itemkey}`,
+        );
+      }
       if (entry.status === "error")
         warn(
           `${entry.citekey || identifiers[i]}: ${entry.error || "unknown error"}`,
         );
-      if (entry.status === "skipped" || entry.status === "pending-review")
+      if (
+        entry.status === "skipped" ||
+        entry.status === "pending-review" ||
+        entry.status === "attachment-error"
+      )
         blocked.set(identifiers[i], snapshots[i]);
       if (entry.status === "pending-review") {
         pendingBlocked.set(
@@ -514,6 +660,7 @@ export async function syncExistingNotesOnce(): Promise<void> {
         entry.status !== "updated" &&
         entry.status !== "skipped" &&
         entry.status !== "pending-review" &&
+        entry.status !== "attachment-error" &&
         entry.status !== "error"
       )
         warn(
@@ -527,6 +674,8 @@ export async function syncExistingNotesOnce(): Promise<void> {
         ),
       );
   } catch (error) {
+    complete = false;
+    scanIssue = error instanceof Error ? error.message : String(error);
     if (actionable.length && !actionablePersisted) throw error;
     if (actionablePersisted) {
       const message = error instanceof Error ? error.message : String(error);
@@ -542,17 +691,166 @@ export async function syncExistingNotesOnce(): Promise<void> {
   } finally {
     for (const key of syncKeys) inFlightSyncs.delete(key);
   }
+  return complete;
 }
 
-export async function processReviewRequests(): Promise<boolean> {
+async function repairInterruptedAttachments(
+  request: any,
+  original: JournalEntry,
+): Promise<void> {
+  const key = reviewIdentity(original);
+  inFlightReviews.add(key);
+  try {
+    const journal = readReviewJournal();
+    const entry = journal.find((current) => sameReview(current, original));
+    if (
+      !entry ||
+      entry.state !== "in-flight" ||
+      entry.operation !== "attachment-move" ||
+      entry.repairAttempt === request.repairId
+    ) {
+      throw new Error(
+        "This interrupted attachment repair is no longer available.",
+      );
+    }
+    entry.repairAttempt = request.repairId;
+    writeReviewJournal(journal);
+    const libraries = Zotero.Libraries.getAll().filter(
+      (library: any) =>
+        library.libraryType === "user" &&
+        Zotero.URI.getLibraryURI(library.libraryID) === entry.libraryURI,
+    );
+    if (libraries.length !== 1)
+      throw new Error("The Zotero library could not be identified.");
+    const item = await Zotero.Items.getByLibraryAndKeyAsync(
+      libraries[0].libraryID,
+      entry.itemkey,
+    );
+    if (!item || item.deleted || !item.isRegularItem())
+      throw new Error("The Zotero item is missing or in the trash.");
+    await item.reload();
+    const payload = await getSyncPayload(item);
+    if (
+      payload.itemkey !== entry.itemkey ||
+      payload.libraryURI !== entry.libraryURI ||
+      !payload.citekey
+    )
+      throw new Error(
+        "The Zotero item identity or citation key is unavailable.",
+      );
+    const prepared = await postReview({
+      action: "attachment-repair-prepare",
+      repairId: request.repairId,
+      data: [payload],
+    });
+    if (!prepared.success || !isAttachmentMoveRequest(prepared.attachmentMove))
+      throw new Error(
+        prepared.error || "Obsidian could not prepare the attachment repair.",
+      );
+    const validatedBase = payload.linkedAttachmentBaseDirectoryValidated
+      ? payload.linkedAttachmentBaseDirectory || ""
+      : "";
+    if (!validatedBase)
+      throw new Error(
+        "Zotero's Linked Attachment Base Directory is no longer validated inside the vault.",
+      );
+    const { moved, linked } = await moveReviewedAttachments(
+      item,
+      prepared.attachmentMove,
+      validatedBase,
+      "zotero",
+      () => recordAttachmentPaths(original, prepared.attachmentMove, true),
+      true,
+      (key, archivePath, resourcesOnly) =>
+        recordAttachmentArchive(
+          original,
+          key,
+          archivePath,
+          true,
+          resourcesOnly,
+        ),
+    );
+    if (
+      moved.length !== prepared.attachmentMove.attachments.length ||
+      linked.length !== prepared.attachmentMove.linkNoteFiles.length ||
+      moved.some((result) => !result.preservedSource)
+    ) {
+      throw new Error(
+        "Not all attachments were copied and linked while preserving the originals.",
+      );
+    }
+    await item.reload();
+    const updatedPayload = await getSyncPayload(item);
+    const completed = await postReview({
+      action: "attachment-repair-complete",
+      repairId: request.repairId,
+      data: [updatedPayload],
+      moved,
+      linked,
+    });
+    if (
+      !Array.isArray(completed.results) ||
+      completed.results.length !== 1 ||
+      completed.results[0]?.status !== "updated"
+    )
+      throw new Error(
+        completed.results?.[0]?.error ||
+          completed.error ||
+          "Obsidian did not update the note links.",
+      );
+    const journalAfterRepair = readReviewJournal();
+    const finished = journalAfterRepair.find((current) =>
+      sameReview(current, original),
+    );
+    if (!finished || finished.repairAttempt !== request.repairId)
+      throw new Error(
+        "The interrupted review record changed during the repair.",
+      );
+    finished.state = "ack-pending";
+    writeReviewJournal(journalAfterRepair);
+    await finishAcknowledgement(finished);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    Zotero.logError(
+      `[Obsidian sync] Interrupted attachment repair ${original.itemkey}: ${message}`,
+    );
+    try {
+      const response = await postReview({
+        action: "review-failed",
+        itemkey: original.itemkey,
+        libraryURI: original.libraryURI,
+        error: message,
+      });
+      if (!response.success)
+        throw new Error(
+          response.error || "Obsidian did not record the repair failure.",
+        );
+    } catch (reportError) {
+      Zotero.logError(
+        `[Obsidian sync] Could not report attachment repair failure: ${reportError instanceof Error ? reportError.message : String(reportError)}`,
+      );
+    }
+    await reportUncertain(original, message);
+  } finally {
+    inFlightReviews.delete(key);
+  }
+}
+
+export async function processReviewRequests(
+  reportJournal = true,
+): Promise<boolean> {
   if (!addon.data.alive) return false;
   readReviewJournal();
   if (!(await isObsidianServerReady())) return false;
-  for (const entry of readReviewJournal()) {
+  for (const entry of reportJournal ? readReviewJournal() : []) {
     if (entry.state === "ack-pending") await finishAcknowledgement(entry);
     else if (
+      entry.operation !== "auto-attachment" &&
+      !deferredAttachmentRecovery.has(reviewIdentity(entry)) &&
+      (!scanId || scanComplete) &&
       !inFlightReviews.has(reviewIdentity(entry)) &&
-      !inFlightSyncs.has(reviewIdentity(entry))
+      !inFlightSyncs.has(reviewIdentity(entry)) &&
+      (!scanId || !reportedUncertain.has(reviewIdentity(entry)))
     )
       await reportUncertain(entry);
   }
@@ -574,6 +872,29 @@ export async function processReviewRequests(): Promise<boolean> {
   )
     throw new Error("Obsidian returned invalid uncertain acknowledgements.");
   const acknowledgements = data.acknowledgedUncertain || [];
+  // Obsidian keeps reviews only in memory, so a restarted Obsidian needs the finished scan run again.
+  if (typeof data.obsidianSession === "string" && data.obsidianSession) {
+    if (!lastObsidianSession) lastObsidianSession = data.obsidianSession;
+    else if (
+      data.obsidianSession !== lastObsidianSession &&
+      (scanComplete || scanSessionMismatch)
+    ) {
+      lastObsidianSession = data.obsidianSession;
+      restartScan(0);
+      return false;
+    }
+  }
+  if (
+    typeof data.rescan === "string" &&
+    data.rescan &&
+    data.rescan !== lastRescan &&
+    (scanComplete || scanSessionMismatch)
+  ) {
+    lastRescan = data.rescan;
+    restartScan(0);
+  }
+  if (Array.isArray(data.itemTrash))
+    for (const request of data.itemTrash) await trashRequestedItem(request);
   const acknowledged = new Set<string>();
   for (const ack of acknowledgements) {
     if (
@@ -602,16 +923,43 @@ export async function processReviewRequests(): Promise<boolean> {
   const pending = new Set(
     data.pending.map((entry: any) => reviewIdentity(entry)),
   );
-  let rediscover = false;
   for (const [id, key] of pendingBlocked) {
-    if (!pending.has(key)) {
-      blocked.delete(id);
-      pendingBlocked.delete(id);
-      rediscover = true;
-    }
+    if (!pending.has(key)) pendingBlocked.delete(id);
   }
-  if (rediscover) schedule(1500);
   const journal = readReviewJournal();
+  for (const request of data.requests) {
+    if (
+      request?.operation !== "attachment-repair" ||
+      typeof request.repairId !== "string" ||
+      !request.repairId
+    )
+      continue;
+    const existing = journal.find((entry) => sameReview(entry, request));
+    if (
+      !existing ||
+      existing.operation !== "attachment-move" ||
+      existing.state !== "in-flight" ||
+      inFlightReviews.has(reviewIdentity(existing)) ||
+      inFlightSyncs.has(reviewIdentity(existing))
+    )
+      continue;
+    if (existing.repairAttempt === request.repairId) {
+      const response = await postReview({
+        action: "review-failed",
+        itemkey: existing.itemkey,
+        libraryURI: existing.libraryURI,
+        error:
+          "The repair was interrupted. Check both apps before starting another repair.",
+      });
+      if (!response.success)
+        throw new Error(
+          response.error || "Obsidian did not record the interrupted repair.",
+        );
+      return false;
+    }
+    await repairInterruptedAttachments(request, existing);
+    return false;
+  }
   if (
     data.requests.some(
       (entry: any) =>
@@ -653,7 +1001,9 @@ export async function processReviewRequests(): Promise<boolean> {
   const entry: JournalEntry = {
     itemkey: request.itemkey,
     libraryURI: request.libraryURI,
-    operation: request.operation || "review-sync",
+    operation: request.automaticAttachment
+      ? "auto-attachment"
+      : request.operation || "review-sync",
     state: "in-flight",
     ...(request.operation === "attachment-move" &&
     isAttachmentMoveRequest(request.attachmentMove)
@@ -781,14 +1131,34 @@ export async function processReviewRequests(): Promise<boolean> {
         throw new Error(
           "Zotero's Linked Attachment Base Directory is no longer validated inside the vault.",
         );
+      if (request.automaticAttachment) {
+        const prepared = await postReview({
+          action: "attachment-auto-prepare",
+          data: [payload],
+        });
+        if (!prepared.success)
+          throw new Error(
+            prepared.error || "The automatic attachment plan changed.",
+          );
+      }
       const { moved, linked } = await moveReviewedAttachments(
         item,
         request.attachmentMove,
         validatedBase,
         request.strategy,
         () => {
+          recordAttachmentPaths(entry, request.attachmentMove, false);
           localMayHaveChanged = true;
         },
+        !!request.automaticAttachment,
+        (key, archivePath, resourcesOnly) =>
+          recordAttachmentArchive(
+            entry,
+            key,
+            archivePath,
+            false,
+            resourcesOnly,
+          ),
       );
       if (
         moved.length !== request.attachmentMove.attachments.length ||
@@ -836,9 +1206,14 @@ export async function processReviewRequests(): Promise<boolean> {
         identity.itemkey === request.itemkey &&
         (!identity.libraryURI || identity.libraryURI === request.libraryURI),
     );
-    if (matching.length !== 1)
+    if (!matching.length)
       throw new Error("The matching Obsidian note is missing or ambiguous.");
-    await addCitationKeyCheck(item, payload, matching[0]);
+    if (request.operation === "note-update" && matching.length !== 1)
+      throw new Error(
+        "Bulk note updates require exactly one matching Obsidian note.",
+      );
+    if (matching.length === 1)
+      await addCitationKeyCheck(item, payload, matching[0]);
     const result = await postReview({
       action:
         request.operation === "note-update"
@@ -846,16 +1221,18 @@ export async function processReviewRequests(): Promise<boolean> {
           : "review-sync",
       data: [payload],
     });
-    const [entry] = await resolveNoteKeyChoices(
+    const [reviewResult] = await resolveNoteKeyChoices(
       "review-sync",
       [{ item, payload }],
       result,
     );
-    if (entry.outcomeUncertain)
-      throw new UncertainReviewError(entry.error || "Review may be partial.");
-    if (entry.status === "error" || entry.status === "missing")
-      throw new Error(entry.error || "Review failed.");
-    if (!["updated", "skipped", "pending-review"].includes(entry.status))
+    if (reviewResult.outcomeUncertain)
+      throw new UncertainReviewError(
+        reviewResult.error || "Review may be partial.",
+      );
+    if (reviewResult.status === "error" || reviewResult.status === "missing")
+      throw new Error(reviewResult.error || "Review failed.");
+    if (!["updated", "skipped", "pending-review"].includes(reviewResult.status))
       throw new UncertainReviewError(
         "Obsidian returned an unknown review result.",
       );
@@ -863,12 +1240,27 @@ export async function processReviewRequests(): Promise<boolean> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof ReviewJournalClearError) {
+      if (request.automaticAttachment) {
+        warn(
+          `Could not persist automatic attachment completion for ${entry.itemkey}: ${message}`,
+        );
+        return more;
+      }
       if (!readOnlyFailure) {
         await reportUncertain(entry, message);
         return more;
       }
       warn(message);
       throw error;
+    }
+    if (
+      request.automaticAttachment &&
+      (error instanceof UncertainReviewError || localMayHaveChanged)
+    ) {
+      warn(
+        `Automatic attachment reconciliation for ${entry.itemkey} may be incomplete: ${message}`,
+      );
+      return more;
     }
     if (error instanceof UncertainReviewError || localMayHaveChanged) {
       Zotero.logError(
@@ -918,7 +1310,14 @@ export async function processReviewRequests(): Promise<boolean> {
 async function pollReviews(): Promise<void> {
   let more = false;
   try {
-    more = await processReviewRequests();
+    if ((scanStarted || scanSessionMismatch) && !running) {
+      processingReviews = true;
+      try {
+        more = await processReviewRequests(!scanSessionMismatch);
+      } finally {
+        processingReviews = false;
+      }
+    }
   } catch (error) {
     warn(error instanceof Error ? error.message : String(error));
   } finally {
@@ -927,60 +1326,414 @@ async function pollReviews(): Promise<void> {
   }
 }
 
-function schedule(delay: number): void {
-  if (!addon.data.alive) return;
-  if (running) {
-    requested = true;
-    return;
+async function scanBoundary(payload: object): Promise<void> {
+  const response = await postReview(payload);
+  if (!response?.success) {
+    const message =
+      response?.error ||
+      "Obsidian did not acknowledge the initial review scan.";
+    if (
+      (response &&
+        Object.prototype.hasOwnProperty.call(response, "initialReviewScan")) ||
+      /^HTTP 409(?:\b|:)/.test(message)
+    )
+      throw new ScanSessionMismatchError(message);
+    throw new Error(message);
   }
+}
+
+function invalidateRecoveryScan(entry: JournalEntry): void {
+  const ids = [
+    `${entry.libraryURI}:${entry.itemkey}`,
+    `legacy:${entry.itemkey}`,
+  ];
+  for (const id of ids) {
+    scannedIdentities.delete(id);
+    observed.delete(id);
+    blocked.delete(id);
+    deferred.delete(id);
+    pendingBlocked.delete(id);
+  }
+}
+
+function libraryForURI(libraryURI: string): any {
+  const libraries = Zotero.Libraries.getAll().filter(
+    (library: any) =>
+      (library.libraryType === "user" || library.libraryType === "group") &&
+      Zotero.URI.getLibraryURI(library.libraryID) === libraryURI,
+  );
+  if (libraries.length !== 1)
+    throw new Error("The Zotero library is unavailable or ambiguous.");
+  return libraries[0];
+}
+
+/**
+ * Move an item to Zotero's trash at Obsidian's request, after its note was merged into another note.
+ * An item that is already in the trash or gone counts as done, so a repeated request is harmless.
+ */
+async function trashRequestedItem(request: any): Promise<void> {
+  if (
+    !request ||
+    typeof request.id !== "string" ||
+    !request.id ||
+    typeof request.itemkey !== "string" ||
+    typeof request.libraryURI !== "string" ||
+    inFlightItemTrash.has(request.id)
+  )
+    return;
+  inFlightItemTrash.add(request.id);
+  try {
+    let error: string | undefined;
+    try {
+      const library = libraryForURI(request.libraryURI);
+      const item = await Zotero.Items.getByLibraryAndKeyAsync(
+        library.libraryID,
+        request.itemkey,
+      );
+      if (item && !item.deleted) {
+        if (!item.isRegularItem())
+          throw new Error("It is not a regular Zotero item.");
+        item.deleted = true;
+        await item.saveTx();
+      }
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : String(failure);
+    }
+    try {
+      await postToObsidian({
+        action: "item-trash-complete",
+        id: request.id,
+        ...(error ? { error } : {}),
+      });
+    } catch (failure) {
+      Zotero.logError(
+        `[Obsidian sync] Could not report the trash result for ${request.itemkey}: ${failure instanceof Error ? failure.message : String(failure)}`,
+      );
+    }
+  } finally {
+    inFlightItemTrash.delete(request.id);
+  }
+}
+
+async function currentRecoveryPayload(
+  entry: JournalEntry,
+): Promise<{ payload: ZoteroItemPayload; itemID: number }> {
+  const library = libraryForURI(entry.libraryURI);
+  const item = await Zotero.Items.getByLibraryAndKeyAsync(
+    library.libraryID,
+    entry.itemkey,
+  );
+  if (
+    !item ||
+    item.deleted ||
+    !item.isRegularItem() ||
+    item.key !== entry.itemkey ||
+    item.libraryID !== library.libraryID ||
+    !Number.isInteger(item.id) ||
+    item.id <= 0
+  )
+    throw new Error("The Zotero item is missing, deleted, or replaced.");
+  const itemID = item.id;
+  await item.reload();
+  if (
+    item.deleted ||
+    !item.isRegularItem() ||
+    item.key !== entry.itemkey ||
+    item.libraryID !== library.libraryID ||
+    item.id !== itemID
+  )
+    throw new Error("The Zotero item changed while preparing recovery.");
+  const payload = await getSyncPayload(item);
+  if (
+    payload.itemkey !== entry.itemkey ||
+    payload.libraryURI !== entry.libraryURI ||
+    typeof payload.title !== "string" ||
+    typeof payload.citekey !== "string" ||
+    !payload.citekey ||
+    !Array.isArray(payload.attachments)
+  )
+    throw new Error(
+      "The Zotero item identity or attachment data is incomplete.",
+    );
+  const keys = new Set<string>();
+  for (const attachment of payload.attachments) {
+    if (
+      !attachment ||
+      typeof attachment.itemkey !== "string" ||
+      !attachment.itemkey ||
+      keys.has(attachment.itemkey) ||
+      typeof attachment.isFile !== "boolean" ||
+      (attachment.isFile &&
+        (typeof attachment.path !== "string" ||
+          !attachment.path ||
+          !["stored", "linked"].includes(attachment.mode || ""))) ||
+      (!attachment.isFile &&
+        (attachment.mode !== "url" ||
+          typeof attachment.url !== "string" ||
+          !attachment.url))
+    )
+      throw new Error("The Zotero attachment data is incomplete or ambiguous.");
+    keys.add(attachment.itemkey);
+  }
+  const current = await Zotero.Items.getByLibraryAndKeyAsync(
+    library.libraryID,
+    entry.itemkey,
+  );
+  if (
+    !current ||
+    current.deleted ||
+    !current.isRegularItem() ||
+    current.key !== entry.itemkey ||
+    current.libraryID !== library.libraryID ||
+    current.id !== itemID
+  )
+    throw new Error("The Zotero item changed while preparing recovery.");
+  return { payload, itemID };
+}
+
+async function recoverInitialReview(
+  entry: JournalEntry,
+): Promise<"recovered" | "deferred" | "failed"> {
+  const key = reviewIdentity(entry);
+  if (inFlightReviews.has(key) || inFlightSyncs.has(key))
+    throw new Error(
+      "A Zotero review is still in progress; retrying the initial scan.",
+    );
+  inFlightReviews.add(key);
+  try {
+    const { payload, itemID } = await currentRecoveryPayload(entry);
+    const before = readReviewJournal().find((candidate) =>
+      sameReview(candidate, entry),
+    );
+    if (
+      !addon.data.alive ||
+      inFlightSyncs.has(key) ||
+      !before ||
+      JSON.stringify(before) !== JSON.stringify(entry) ||
+      before.state !== "in-flight"
+    )
+      throw new Error("The interrupted review changed before recovery.");
+    const snapshot = JSON.stringify(payload);
+    const response = await postReview({
+      action: "review-recover",
+      data: [payload],
+      ...(entry.operation === "auto-attachment" && entry.attachmentPaths
+        ? { automaticAttachmentPaths: entry.attachmentPaths }
+        : {}),
+    });
+    if (
+      response?.results?.length === 1 &&
+      response.results[0]?.status === "attachment-error" &&
+      response.results[0]?.citekey === payload.citekey
+    ) {
+      deferredAttachmentRecovery.add(key);
+      return "deferred";
+    }
+    if (
+      response?.success !== true ||
+      !Array.isArray(response.results) ||
+      response.results.length !== 1 ||
+      !["skipped", "pending-review"].includes(response.results[0]?.status) ||
+      response.results[0]?.citekey !== payload.citekey
+    )
+      throw new Error(
+        response?.results?.[0]?.error ||
+          response?.error ||
+          "Obsidian could not recover the interrupted review.",
+      );
+    const currentPayload = await currentRecoveryPayload(entry);
+    if (
+      currentPayload.itemID !== itemID ||
+      JSON.stringify(currentPayload.payload) !== snapshot
+    )
+      throw new Error("The Zotero item changed during recovery.");
+    const journal = readReviewJournal();
+    const current = journal.find((candidate) => sameReview(candidate, entry));
+    if (
+      !addon.data.alive ||
+      inFlightSyncs.has(key) ||
+      !current ||
+      JSON.stringify(current) !== JSON.stringify(entry) ||
+      current.state !== "in-flight"
+    )
+      throw new Error("The interrupted review changed during recovery.");
+    writeReviewJournal(
+      journal.filter((candidate) => !sameReview(candidate, entry)),
+    );
+    forgetUncertain(entry);
+    deferredAttachmentRecovery.delete(key);
+    invalidateRecoveryScan(entry);
+    return "recovered";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (recoveryErrors.get(key) !== message) {
+      Zotero.logError(
+        `[Obsidian sync] Could not recover interrupted review ${entry.itemkey}: ${message}`,
+      );
+      recoveryErrors.set(key, message);
+    }
+    return "failed";
+  } finally {
+    inFlightReviews.delete(key);
+  }
+}
+
+async function reportInitialJournal(): Promise<boolean> {
+  let recovered = false;
+  for (const entry of readReviewJournal()) {
+    const key = reviewIdentity(entry);
+    if (inFlightReviews.has(key) || inFlightSyncs.has(key))
+      throw new Error(
+        "A Zotero review is still in progress; retrying the initial scan.",
+      );
+    if (entry.state === "ack-pending") await finishAcknowledgement(entry);
+    else if (!reportedUncertain.has(key)) {
+      const recovery = await recoverInitialReview(entry);
+      if (recovery === "recovered") {
+        recovered = true;
+      } else if (recovery === "failed") {
+        const current = readReviewJournal().find((candidate) =>
+          sameReview(candidate, entry),
+        );
+        if (
+          !current ||
+          JSON.stringify(current) !== JSON.stringify(entry) ||
+          inFlightReviews.has(key) ||
+          inFlightSyncs.has(key)
+        )
+          throw new Error(
+            "The interrupted review changed; retrying the initial scan.",
+          );
+        if (entry.operation === "auto-attachment") {
+          warn(
+            `Could not resume automatic attachment reconciliation for ${entry.itemkey}.`,
+          );
+        } else await reportUncertain(entry);
+      }
+    }
+  }
+  if (uncertainReportErrors.size || acknowledgementErrors.size)
+    throw new Error("Could not report all interrupted reviews to Obsidian.");
+  return recovered;
+}
+
+function schedule(delay: number): void {
+  if (!addon.data.alive || scanComplete || scanSessionMismatch) return;
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    void run();
-  }, delay);
+  timer = setTimeout(() => void run(), delay);
 }
 
 async function run(): Promise<void> {
-  if (!addon.data.alive || running) return;
+  if (!addon.data.alive || running || scanComplete || scanSessionMismatch)
+    return;
+  if (processingReviews) {
+    schedule(3000);
+    return;
+  }
   running = true;
-  requested = false;
   try {
-    await syncExistingNotesOnce();
+    if (!(await isObsidianServerReady())) return;
+    if (!scanStarted) {
+      await scanBoundary({ action: "initial-review-scan-start", scanId });
+      scanStarted = true;
+    }
+    if (!scanWorkDone) {
+      if (getAttachmentBaseValidationState() === "pending") return;
+      await reportInitialJournal();
+      scanIssue = "";
+      scanWorkDone = await syncExistingNotesOnce(true);
+      if (!scanWorkDone) {
+        if (scanIssue) throw new Error(scanIssue);
+        return;
+      }
+      try {
+        if (await reportInitialJournal()) {
+          scanWorkDone = false;
+          return;
+        }
+      } catch (error) {
+        scanWorkDone = false;
+        throw error;
+      }
+    }
+    await scanBoundary({
+      action: "initial-review-scan-end",
+      scanId,
+      status: "complete",
+    });
+    scanComplete = true;
+    dismissSyncNotice?.();
+    dismissSyncNotice = showDismissibleNotice(getString("startup-finish"));
+    lastWarning = "";
   } catch (error) {
-    warn(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof ScanSessionMismatchError) {
+      scanSessionMismatch = true;
+      scanStarted = false;
+      warn(
+        "The Zotero and Obsidian review scan sessions no longer match. Restart both applications to check inconsistencies again.",
+      );
+      return;
+    }
+    warn(message);
+    if (scanStarted && !scanWorkDone) {
+      try {
+        await scanBoundary({
+          action: "initial-review-scan-end",
+          scanId,
+          status: "error",
+          error: message,
+        });
+      } catch (boundaryError) {
+        Zotero.logError(
+          `[Obsidian sync] Could not report initial scan failure: ${boundaryError instanceof Error ? boundaryError.message : String(boundaryError)}`,
+        );
+      }
+      scanStarted = false;
+    }
   } finally {
     running = false;
-    schedule(requested ? 1500 : 60000);
+    if (!scanComplete) schedule(3000);
   }
 }
 
+function restartScan(delay: number): void {
+  scanId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  scanStarted = false;
+  scanWorkDone = false;
+  scanComplete = false;
+  scanSessionMismatch = false;
+  scannedIdentities.clear();
+  reportedUncertain.clear();
+  // A full recheck starts with Obsidian's review list cleared, so items it already reported must be sent again.
+  blocked.clear();
+  pendingBlocked.clear();
+  deferred.clear();
+  schedule(delay);
+}
+
 export function startAutoSync(): void {
-  observerID = Zotero.Notifier.registerObserver(
-    {
-      notify(event: string, type: string) {
-        if (
-          type === "item" &&
-          ["add", "modify", "delete", "trash", "move"].includes(event)
-        )
-          schedule(1500);
-      },
-    },
-    ["item"],
-    "obsidian-note-sync",
-    10,
-  );
-  schedule(1500);
+  restartScan(1500);
   reviewTimer = setTimeout(() => void pollReviews(), 1500);
   reviewPolling = true;
 }
 
 export function stopAutoSync(): void {
+  dismissSyncNotice?.();
+  dismissSyncNotice = undefined;
   reviewPolling = false;
   if (reviewTimer) clearTimeout(reviewTimer);
   reviewTimer = undefined;
-  if (observerID) Zotero.Notifier.unregisterObserver(observerID);
-  observerID = undefined;
   if (timer) clearTimeout(timer);
   timer = undefined;
+  scanId = "";
+  lastObsidianSession = "";
+  scanStarted = false;
+  scanWorkDone = false;
+  scanComplete = false;
+  scanSessionMismatch = false;
+  scannedIdentities.clear();
+  reportedUncertain.clear();
   blocked.clear();
   pendingBlocked.clear();
   deferred.clear();
@@ -990,6 +1743,10 @@ export function stopAutoSync(): void {
   uncertainTitleErrors.clear();
   uncertainAttachmentErrors.clear();
   acknowledgementErrors.clear();
+  recoveryErrors.clear();
+  deferredAttachmentRecovery.clear();
+  inFlightItemTrash.clear();
+  lastRescan = "";
   lastWarning = "";
   lastReport = "";
   closeNoteMatchReport();

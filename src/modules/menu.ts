@@ -9,6 +9,7 @@ import {
   createLitNotes,
   openLitNote,
   regenerateCitationKeys,
+  copyItemKeys,
   updateLitNotes,
   regularItems,
   syncHasNoteIndicators,
@@ -80,6 +81,14 @@ export function registerItemMenu(): void {
             onCommand: (_event: any, context: any) => {
               void regenerateCitationKeys(selectedRegularItems(context));
             },
+          },
+          {
+            menuType: "menuitem",
+            l10nID: l10nId("menu-copy-item-key"),
+            onShowing: (_event: any, context: any) =>
+              context.setVisible(hasRegularItem(context)),
+            onCommand: (_event: any, context: any) =>
+              copyItemKeys(selectedRegularItems(context)),
           },
           {
             menuType: "menuitem",
