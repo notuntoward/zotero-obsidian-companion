@@ -38,7 +38,13 @@ External or unindexed links cannot be guaranteed to update.
 - Initial and manual reviews include literature notes missing an item key, with
   their paths available for manual correction; the association must be rechecked
   after a key is added.
-- Next: stage 2, after the remaining adoption decisions are confirmed.
+- Stage 2 adoption decisions are confirmed. Manual updates now require a
+  reviewed adoption when no baseline exists or the note-side value diverges;
+  accepted collection values are recorded by library URI and item key in Saver
+  settings. Saver's final build passed (969 tests); Companion action tests passed
+  (16), and the Watchword build passed (713 tests). Saver's browser suite was
+  not run.
+- Next: stage 3, using the confirmed conflict policy below.
 
 ## Stages and test gates
 
@@ -55,13 +61,13 @@ External or unindexed links cannot be guaranteed to update.
 
 ### 2. Manual update and adoption
 
-- [ ] Verify Update Lit Note previews collection additions, removals, and
+- [x] Verify Update Lit Note previews collection additions, removals, and
       renames, including empty membership, without affecting personal properties.
-- [ ] Revalidate the Zotero data and note before applying; cancellation and
+- [x] Revalidate the Zotero data and note before applying; cancellation and
       concurrent edits must not silently overwrite changes.
-- [ ] Review divergent existing values before adopting them as Zotero-managed;
+- [x] Review divergent existing values before adopting them as Zotero-managed;
       never guess an ambiguous or legacy item association.
-- [ ] Test preview, cancellation, stale data, adoption, and existing key and
+- [x] Test preview, cancellation, stale data, adoption, and existing key and
       attachment review behavior.
 
 ### 3. Startup collection synchronization
@@ -114,13 +120,16 @@ External or unindexed links cannot be guaranteed to update.
 ## Decisions to confirm before affected stages
 
 - Empty membership: remove the property as the current metadata builder does,
-  or retain an empty list? Recommendation: preserve existing behavior.
+  rather than retain an empty list.
 - Normalized collection collisions and hierarchy: warn while preserving the
-  existing format, or change the format? Recommendation: preserve and warn.
-- Existing divergent values: individual review or reviewed bulk adoption?
-  Recommendation: offer reviewed bulk adoption.
-- When a managed value is manually edited, define how the user resolves the
-  resulting conflict before automatic updates resume.
+  existing flat format and warn; do not encode hierarchy.
+- Existing divergent values: use a reviewed batch. Preview each affected note
+  before applying any; cancellation cancels the batch. Writes remain
+  non-atomic, so an unexpected apply-time failure can leave partial results.
+- If a managed value is manually edited, stage 3 must hold automatic updates
+  for that note and require review: apply Zotero, keep the Obsidian value and
+  stop managing collections for that note, or defer. A deferred conflict stays
+  held until explicitly resolved.
 
 ## Working notes
 
