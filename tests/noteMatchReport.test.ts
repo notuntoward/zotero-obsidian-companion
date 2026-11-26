@@ -1,4 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ post: vi.fn() }));
+vi.mock("../src/modules/obsidianConnection", () => ({
+  postToObsidian: mocks.post,
+}));
+
 import {
   closeNoteMatchReport,
   formatNoteMatchIssue,
@@ -19,9 +25,10 @@ class ElementStub {
   }
   value = "";
   children: ElementStub[] = [];
-  listeners: Record<string, () => void> = {};
+  listeners: Record<string, (event?: any) => any> = {};
+  constructor(readonly tag = "") {}
   setAttribute = vi.fn();
-  addEventListener(type: string, handler: () => void) {
+  addEventListener(type: string, handler: (event?: any) => any) {
     this.listeners[type] = handler;
   }
   replaceChildren() {
@@ -43,10 +50,10 @@ class DialogStub {
     closed: false,
     document: {
       getElementById: (id: string) => this.elements.get(id),
-      createElementNS: (namespace: string) => {
+      createElementNS: (namespace: string, tag: string) => {
         if (namespace !== "http://www.w3.org/1999/xhtml")
           throw new Error("Expected HTML namespace");
-        return new ElementStub();
+        return new ElementStub(tag);
       },
     },
     close: () => {
@@ -94,9 +101,12 @@ describe("unmatched note report", () => {
     closeNoteMatchReport();
     copy.mockReset();
     commitCopy.mockReset();
+    mocks.post.mockReset();
+    mocks.post.mockResolvedValue({ success: true });
     (globalThis as any).Zotero = {
       getMainWindow: () => ({ screen: { availWidth: 1200, availHeight: 900 } }),
       logError: vi.fn(),
+      alert: vi.fn(),
     };
     (globalThis as any).addon = {
       data: {
@@ -166,6 +176,50 @@ describe("unmatched note report", () => {
     expect(formatNoteMatchReport(issues)).toContain(
       "lit/lit_notes/Izquierdo.md\tA76T9GBA",
     );
+  });
+
+  it("opens the exact reported note when its name is clicked", async () => {
+    showNoteMatchReport([issue(1)]);
+    const dialog = DialogStub.current;
+    dialog.data.loadCallback();
+    const note =
+      dialog.elements.get("note-match-list")!.children[0].children[1]
+        .children[0].children[0];
+    const link = note.children[0];
+    expect(link.tag).toBe("a");
+    expect(link.textContent).toBe("Note 1.md");
+    expect(link.setAttribute).toHaveBeenCalledWith("href", "#");
+    const event = { preventDefault: vi.fn() };
+    await link.listeners.click(event);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(mocks.post).toHaveBeenCalledWith({
+      action: "open-note-path",
+      notePath: "Literature/Note 1.md",
+      itemkey: "ITEM1",
+    });
+    expect(dialog.window.closed).toBe(false);
+  });
+
+  it("reports an opening failure and leaves unavailable names unlinked", async () => {
+    mocks.post.mockResolvedValue({
+      success: false,
+      error: "Note no longer matches",
+    });
+    showNoteMatchReport([issue(1), { ...issue(2), notePath: undefined }]);
+    const dialog = DialogStub.current;
+    dialog.data.loadCallback();
+    const rows =
+      dialog.elements.get("note-match-list")!.children[0].children[1].children;
+    await rows[0].children[0].children[0].listeners.click({
+      preventDefault: vi.fn(),
+    });
+    expect((globalThis as any).Zotero.alert).toHaveBeenCalledWith(
+      expect.anything(),
+      "Could not open Obsidian note",
+      expect.stringContaining("Note no longer matches"),
+    );
+    expect(rows[1].children[0].children).toHaveLength(0);
+    expect(rows[1].children[0].textContent).toContain("Name unavailable");
   });
 
   it("reports different searched Zotero libraries for each note", () => {

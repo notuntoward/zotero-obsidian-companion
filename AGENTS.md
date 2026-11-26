@@ -66,6 +66,7 @@ The Zotero side posts to `http://127.0.0.1:27124/lit-note`:
 
 - `{ action: "create", data: ZoteroItemPayload[] }`
 - `{ action: "open", data: ZoteroItemPayload[] }`
+- `{ action: "open-note-path", notePath, itemkey }` opens a reported note after rechecking its path and item key, without changing it
 - `{ action: "sync", data: ZoteroItemPayload[] }` for automatic reconciliation
 - `{ action: "update", data: ZoteroItemPayload[] }` for previewed metadata updates
 - `{ action: "apply-sync" | "validate-zotero-key", token, data: [ZoteroItemPayload] }` to revalidate an approved plan

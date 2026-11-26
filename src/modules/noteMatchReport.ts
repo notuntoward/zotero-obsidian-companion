@@ -1,4 +1,5 @@
 import { getMainWindow, showAlert } from "../utils/alert";
+import { postToObsidian } from "./obsidianConnection";
 
 declare const Zotero: any;
 declare const addon: any;
@@ -159,7 +160,38 @@ function render(): void {
     for (const issue of shown) {
       const row = doc.createElementNS("http://www.w3.org/1999/xhtml", "tr");
       const note = doc.createElementNS("http://www.w3.org/1999/xhtml", "td");
-      note.textContent = noteName(issue);
+      if (issue.notePath) {
+        const notePath = issue.notePath;
+        const link = doc.createElementNS("http://www.w3.org/1999/xhtml", "a");
+        link.textContent = noteName(issue);
+        link.setAttribute("href", "#");
+        link.title = `Open ${notePath} in Obsidian`;
+        link.addEventListener("click", async (event) => {
+          event.preventDefault();
+          try {
+            const result = await postToObsidian({
+              action: "open-note-path",
+              notePath,
+              itemkey: issue.itemkey,
+            });
+            if (!result.success) {
+              throw new Error(
+                result.error || "Obsidian did not open the note.",
+              );
+            }
+          } catch (error) {
+            Zotero.logError(error);
+            showAlert(
+              getMainWindow(),
+              "Could not open Obsidian note",
+              String(error),
+            );
+          }
+        });
+        note.appendChild(link);
+      } else {
+        note.textContent = noteName(issue);
+      }
       note.title = issue.notePath || "";
       note.style.overflowWrap = "anywhere";
       if (showDetails) {
