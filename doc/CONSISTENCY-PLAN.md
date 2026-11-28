@@ -18,14 +18,16 @@ External or unindexed links cannot be guaranteed to update.
 
 ## Current state and next step
 
-- Stage: Stage 3 implemented; a managed Bike collection change synced without approval during the live recheck.
-- Next: proposed intermediate stage, remove collection baselines under the newly confirmed Zotero-authoritative policy and investigate Regen BibTeX Key persistence; then Stage 4.
+- Stage: Stage 3 follow-up implemented; its live managed Bike recheck passed, and the collection-baseline and conflict-review removal is complete.
+- Next: Stage 4, in-session collection changes.
 - Collection names and Zotero tags are normalized to lowercase, hyphen-separated lists (spaces and underscores become `-`) without `obsLitNote`; hierarchy is not represented.
-- Manual Update previews collection changes and records approved baselines by Zotero library URI and item key.
-- Empty membership keeps `zotero_collections` as `[]`; missing collection data preserves the existing value.
-- Stage 3 implements the earlier collection-edit conflict policy; the newly confirmed policy is that Zotero-owned metadata overwrites corresponding note values. Baseline removal is not implemented yet.
+- Zotero collection membership is authoritative when collection data is present; Saver updates `zotero_collections` without collection baselines or conflict reviews. Missing collection data preserves the existing value.
+- New and synchronized literature notes keep `zotero_tags` and `zotero_collections` as lists, using `[]` when empty; missing properties on existing notes are repaired through Obsidian's frontmatter API.
+- Regen Citation Key saves the confirmed key and verifies it after reloading the Zotero item; Cancel leaves the saved key unchanged.
+- The user confirmed the current `3Blue1Brown24WvizIntroGPTtransfrmr` note has `zotero_collections`; no live repair was needed for that property.
+- The verified Companion XPI was installed after backing up the previous XPI. The user reports Zotero 10.0.8; restart Zotero to load and behavior-test the new code.
 - A reviewed batch cancellation cancels before applying, but unexpected apply-time failures can leave partial writes.
-- Blockers: Saver full browser suite not yet run; notes without a unique active Zotero match remain unresolved.
+- Blockers: notes without a unique active Zotero match remain unresolved.
 
 ## Stages and test gates
 
@@ -62,16 +64,25 @@ matches are left untouched. Both `zotero_tags` and `zotero_collections` remain
 present as lists, including when empty.
 
 Live diagnosis confirmed the one-time repair used the plugin ID instead of the
-registered installation directory and missed stored baselines. Saver now
-migrates a managed baseline only when the actual note exactly matches its
-normalized value, before reconciling new Zotero memberships. Genuine note
-edits, stopped management and unresolved recovery remain protected.
+registered installation directory. Collection baselines and their conflict
+reviews have since been removed: supplied Zotero collection data overwrites
+the corresponding note property, while omitted data preserves it. Existing
+missing Zotero list properties are repaired through Obsidian's frontmatter API.
+Attachment-preservation records remain note data and are not collection
+baselines.
 
 - [x] Extend the cross-plugin automatic-sync contract and plan validation;
       missing data from an older peer is not an empty collection list.
-- [x] Compare associated notes at startup and update only the adopted managed
-      property. Route conflicts and errors to Zotero reviews. Live recheck
-      confirmed the managed Bike change synced without approval.
+- [x] Compare associated notes at startup, backfill missing library identities
+      only after unique matches are rechecked, and preserve pause, retry,
+      recovery, and link-repair safeguards. Live recheck confirmed the managed
+      Bike change synced without approval.
+- [x] Remove collection baselines and conflict reviews. Zotero-owned collection
+      data overwrites the matching note property; missing collection data does
+      not erase it. Repair missing `zotero_tags` and `zotero_collections`
+      through Obsidian's frontmatter API, using `[]` when empty.
+- [x] Verify Regen Citation Key confirmation persists after reloading the Zotero
+      item; cancellation preserves the saved key.
 - [x] Preserve paused checks, manual checks, recovery, retries, and startup-scan
       scheduling, including draining reviews on a retryable busy scan.
 - [x] Test old databases, adoption, stale plans, peer compatibility, paused
@@ -90,7 +101,8 @@ edits, stopped management and unresolved recovery remain protected.
 ### 5. Citation keys and attachments
 
 - [ ] Persist trustworthy attachment identities and paths for associated notes.
-      Old databases and notes without a baseline must remain safe to use.
+      Old databases and notes without stored attachment history must remain
+      safe to use.
 - [ ] Detect direct filename edits, Zotero rename-button changes, and attachment
       moves accompanying citation-key edits. Match by attachment item key, not
       extension or filename; replacement can create a new key.
@@ -101,13 +113,14 @@ edits, stopped management and unresolved recovery remain protected.
 - [ ] Journal multi-step work; report partial outcomes and require review when
       history, links, or identities are uncertain.
 - [ ] Test multiple PDFs, meaningful names, collisions, missing files, key
-      changes, stale baselines, interruption, recovery, and preserved note content.
+      changes, missing or stale attachment history, interruption, recovery, and
+      preserved note content.
 
 ### 6. Release readiness
 
-- [ ] Update both plugins' documentation and protocol descriptions.
-- [ ] Run required checks and builds in the original checkouts, verify runtime
-      artifacts, and install the verified companion XPI as instructed.
+- [x] Update both plugins' documentation and protocol descriptions.
+- [x] Run required checks and builds in the original checkouts, verify runtime
+      artifacts, and install the verified companion XPI after backing it up.
 - [ ] Manually test an old library, existing notes, collection changes,
       multiple attachments, offline recovery, and citation-key changes.
 - [ ] Document flattened names, external links, third-party schemes, and
@@ -122,13 +135,11 @@ edits, stopped management and unresolved recovery remain protected.
 - Should divergent manual values use a reviewed batch that cancels before writes,
   while unexpected apply-time failures may leave partial writes? Recommended
   default: yes. (Confirmed.)
-- Should automatic sync hold a manually edited managed value until the user
-  applies Zotero, keeps Obsidian and stops managing, or defers? Recommended
-  default: earlier confirmed policy, implemented in Stage 3; superseded by the
-  confirmed Zotero-authoritative policy. Remove collection baselines and this
-  conflict review before extending synchronization. Preserve link-repair
-  safeguards for citekeys and attachments; do not delete attachment-preservation
-  records as if they were collection baselines.
+- Should Zotero-owned collection metadata overwrite the corresponding note
+  property when supplied? Confirmed. Do not retain collection baselines or
+  collection conflict reviews. Preserve missing-data, identity, pause, retry,
+  recovery, link-repair, and attachment-preservation safeguards; attachment
+  records are not collection baselines.
 - Which dates should note creation and modification properties represent?
   Recommended default: the Obsidian note lifecycle; use separately named
   properties for Zotero dates if needed. (Not yet confirmed.)

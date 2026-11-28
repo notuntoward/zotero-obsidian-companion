@@ -59,29 +59,17 @@ Lookup failures stop the update.
 Sync payloads carry the current direct collection names when Zotero lookup
 succeeds. Saver normalizes those names for `zotero_collections` (lowercase;
 spaces and underscores become `-`; the Companion's collision log mirrors this);
-hierarchy is not represented. An explicit empty `collections: []` means no memberships and
-keeps `zotero_collections` present as an empty list. Missing `collections` (including from an older
-companion) is unknown data, not an empty list, and must preserve the note value.
-`zotero_tags` and `zotero_collections` are list properties; keep each property
-present when its list is empty.
+hierarchy is not represented. Zotero is authoritative for this property: when
+`collections` is present, Saver writes the supplied membership, including an
+explicit empty list. There are no collection baselines or collection conflict
+reviews. Missing `collections` (including from an older companion) is unknown
+data, not an empty list, and must preserve the existing note value.
 
-Automatic collection updates are permitted only for notes whose collection
-management is `managed` and whose current `zotero_collections` still matches the
-last accepted baseline. Baselines are keyed by Zotero library URI and item key.
-A successful automatic update advances the baseline. Creation records the
-generated value as the baseline. Existing uniquely associated notes without a
-baseline can be adopted without a review only when their current value matches
-Zotero's value. Managed notes that already match Zotero refresh a stale baseline
-without rewriting the note or requiring a review. Stopped collection management
-and unresolved interruptions are not reset by this matching-values path.
-If the actual note exactly matches a managed baseline after the shared list
-normalization, Saver saves that format-only baseline migration before
-reconciling Zotero changes. It does not adopt differing note memberships.
-Genuine differences hold automatic updates for a single batch
-review; no collection value is overwritten automatically. The user can apply
-Zotero's current memberships, keep the Obsidian values and stop managing
-collections, or defer. Deferral leaves the review held. Applying Zotero records
-the new managed baseline; keeping Obsidian records that management is disabled.
+`zotero_tags` and `zotero_collections` are list properties and remain present
+when empty. Newly created notes write both properties as lists. When an existing
+note is missing either property, Saver repairs it through Obsidian's frontmatter
+API, using `[]` when no value is available. A canceled or otherwise
+unapproved operation must not mutate the note.
 
 The automatic path waits for stable snapshots and retries when Obsidian becomes
 available. Payloads identify the Zotero library by name and attachments by item

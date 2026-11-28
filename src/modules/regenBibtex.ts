@@ -1,4 +1,5 @@
 import { focusMainWindow, getMainWindow, showAlert } from "../utils/alert";
+import { getCiteKey } from "./obsidianPayload";
 
 export async function regenBibtexKey(items: any[]) {
   if (!(Zotero as any).BetterBibTeX) {
@@ -24,7 +25,7 @@ export async function regenBibtexKey(items: any[]) {
     if (!item.isRegularItem()) continue;
 
     await item.reload();
-    const oldKey = item.getField("citationKey") || "";
+    const oldKey = await getCiteKey(item);
 
     // propose() is synchronous and returns a string (or falsy if no key).
     const proposedKey =
@@ -53,6 +54,12 @@ export async function regenBibtexKey(items: any[]) {
     if (finalKey && finalKey !== oldKey) {
       item.setField("citationKey", finalKey);
       await item.saveTx({ skipDateModifiedUpdate: true });
+      await item.reload();
+      if ((await getCiteKey(item)) !== finalKey) {
+        throw new Error(
+          "Zotero did not retain the selected citation key. Check Better BibTeX and retry.",
+        );
+      }
     }
 
     // Give BBT's background scheduler a moment to breathe
