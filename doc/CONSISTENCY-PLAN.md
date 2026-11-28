@@ -18,33 +18,14 @@ External or unindexed links cannot be guaranteed to update.
 
 ## Current state and next step
 
-- Both plugins are unreleased. Existing companion notes are still real user
-  data and require safe adoption.
-- Creation uses direct collection names, lowercased with spaces replaced by
-  underscores, in `zotero_collections`. Hierarchy is not represented.
-- Update Lit Note previews collection metadata along with other Zotero metadata.
-  Startup reconciliation currently checks keys and attachments, not collections.
-- Stage 1 is implemented; both plugin builds passed and the verified companion
-  XPI was installed. The user restarted both apps and confirmed the manual
-  collection-update check worked. Collection collisions are logged in Zotero,
-  not yet shown in the review UI.
-- Zotero showed a connection warning while Obsidian was still starting; startup
-  then appeared normal. Investigate if the warning persists or recurs.
-- The literature-note indicator uses a movable Zotero column and an atomic
-  snapshot keyed by library URI and item key, cached locally for offline startup.
-  Hollow diamonds identify stale cached matches. Missing or ambiguous
-  identity is shown as unknown. The user completed both the old-indicator and
-  missing-library-identity cleanups; their settings actions were removed.
-- Initial and manual reviews include literature notes missing an item key, with
-  their paths available for manual correction; the association must be rechecked
-  after a key is added.
-- Stage 2 adoption decisions are confirmed. Manual updates now require a
-  reviewed adoption when no baseline exists or the note-side value diverges;
-  accepted collection values are recorded by library URI and item key in Saver
-  settings. Saver's final build passed (969 tests); Companion action tests passed
-  (16), and the Watchword build passed (713 tests). Saver's browser suite was
-  not run.
-- Next: stage 3, using the confirmed conflict policy below.
+- Stage: Stage 3 implemented; a managed Bike collection change synced without approval during the live recheck.
+- Next: proposed intermediate stage, remove collection baselines under the newly confirmed Zotero-authoritative policy and investigate Regen BibTeX Key persistence; then Stage 4.
+- Collection names and Zotero tags are normalized to lowercase, hyphen-separated lists (spaces and underscores become `-`) without `obsLitNote`; hierarchy is not represented.
+- Manual Update previews collection changes and records approved baselines by Zotero library URI and item key.
+- Empty membership keeps `zotero_collections` as `[]`; missing collection data preserves the existing value.
+- Stage 3 implements the earlier collection-edit conflict policy; the newly confirmed policy is that Zotero-owned metadata overwrites corresponding note values. Baseline removal is not implemented yet.
+- A reviewed batch cancellation cancels before applying, but unexpected apply-time failures can leave partial writes.
+- Blockers: Saver full browser suite not yet run; notes without a unique active Zotero match remain unresolved.
 
 ## Stages and test gates
 
@@ -72,13 +53,28 @@ External or unindexed links cannot be guaranteed to update.
 
 ### 3. Startup collection synchronization
 
-- [ ] Extend the cross-plugin automatic-sync contract and plan validation;
+Changes: Companion and Saver. Impact peer: each other; verified by final impact
+runs in both checkouts.
+
+Automatic scans now backfill a missing `zotero_library_uri` only after a unique
+active match is rechecked across accessible libraries. Ambiguous or missing
+matches are left untouched. Both `zotero_tags` and `zotero_collections` remain
+present as lists, including when empty.
+
+Live diagnosis confirmed the one-time repair used the plugin ID instead of the
+registered installation directory and missed stored baselines. Saver now
+migrates a managed baseline only when the actual note exactly matches its
+normalized value, before reconciling new Zotero memberships. Genuine note
+edits, stopped management and unresolved recovery remain protected.
+
+- [x] Extend the cross-plugin automatic-sync contract and plan validation;
       missing data from an older peer is not an empty collection list.
-- [ ] Compare associated notes at startup and update only the adopted managed
-      property. Route conflicts and errors to Zotero reviews.
-- [ ] Preserve paused checks, manual checks, recovery, retries, and startup-scan
+- [x] Compare associated notes at startup and update only the adopted managed
+      property. Route conflicts and errors to Zotero reviews. Live recheck
+      confirmed the managed Bike change synced without approval.
+- [x] Preserve paused checks, manual checks, recovery, retries, and startup-scan
       scheduling, including draining reviews on a retryable busy scan.
-- [ ] Test old databases, adoption, stale plans, peer compatibility, paused
+- [x] Test old databases, adoption, stale plans, peer compatibility, paused
       checks, disconnection, recovery, and unrelated note content.
 
 ### 4. In-session collection changes
@@ -119,17 +115,23 @@ External or unindexed links cannot be guaranteed to update.
 
 ## Decisions to confirm before affected stages
 
-- Empty membership: remove the property as the current metadata builder does,
-  rather than retain an empty list.
-- Normalized collection collisions and hierarchy: warn while preserving the
-  existing flat format and warn; do not encode hierarchy.
-- Existing divergent values: use a reviewed batch. Preview each affected note
-  before applying any; cancellation cancels the batch. Writes remain
-  non-atomic, so an unexpected apply-time failure can leave partial results.
-- If a managed value is manually edited, stage 3 must hold automatic updates
-  for that note and require review: apply Zotero, keep the Obsidian value and
-  stop managing collections for that note, or defer. A deferred conflict stays
-  held until explicitly resolved.
+- Should empty Zotero membership retain `zotero_collections` as `[]`?
+  Recommended default: yes. (Confirmed.)
+- Should normalized name collisions be warned about while retaining the flat
+  format, without encoding hierarchy? Recommended default: yes. (Confirmed.)
+- Should divergent manual values use a reviewed batch that cancels before writes,
+  while unexpected apply-time failures may leave partial writes? Recommended
+  default: yes. (Confirmed.)
+- Should automatic sync hold a manually edited managed value until the user
+  applies Zotero, keeps Obsidian and stops managing, or defers? Recommended
+  default: earlier confirmed policy, implemented in Stage 3; superseded by the
+  confirmed Zotero-authoritative policy. Remove collection baselines and this
+  conflict review before extending synchronization. Preserve link-repair
+  safeguards for citekeys and attachments; do not delete attachment-preservation
+  records as if they were collection baselines.
+- Which dates should note creation and modification properties represent?
+  Recommended default: the Obsidian note lifecycle; use separately named
+  properties for Zotero dates if needed. (Not yet confirmed.)
 
 ## Working notes
 

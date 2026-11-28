@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   closeReport: vi.fn(),
   moveAttachments: vi.fn(),
   syncRecovery: vi.fn(),
+  backfillLibraryURIs: vi.fn(),
   dismissNotice: vi.fn(),
 }));
 vi.mock("../src/modules/obsidianConnection", () => ({
@@ -32,6 +33,9 @@ vi.mock("../src/modules/attachmentMover", () => ({
 }));
 vi.mock("../src/modules/attachmentSyncRecovery", () => ({
   recoverAttachmentSyncState: mocks.syncRecovery,
+}));
+vi.mock("../src/modules/indicatorCleanup", () => ({
+  fillMissingLibraryURIs: mocks.backfillLibraryURIs,
 }));
 vi.mock("../src/modules/attachmentBaseMonitor", () => ({
   getAttachmentBaseValidationState: () => "valid",
@@ -61,6 +65,7 @@ describe("automatic note reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.syncRecovery.mockResolvedValue(undefined);
+    mocks.backfillLibraryURIs.mockResolvedValue(true);
     mocks.notice.mockReturnValue(mocks.dismissNotice);
     mocks.attachments.mockReset();
     mocks.attachments.mockReturnValue([]);
@@ -2276,6 +2281,58 @@ describe("automatic note reconciliation", () => {
     );
     return { zotero, entry, item, payload };
   }
+  it("backfills unique legacy library identities before startup reconciliation", async () => {
+    vi.useFakeTimers();
+    try {
+      const { zotero } = startupRecoveryFixture();
+      zotero.Prefs.set("extensions.test.reviewJournal", "[]");
+      zotero.Prefs.set("extensions.test.pauseAutomaticChecks", false);
+      zotero.HTTP.request.mockImplementation(
+        async (_method: string, url: string) => ({
+          responseText: JSON.stringify(
+            url.includes("identities")
+              ? {
+                  success: true,
+                  identities: [
+                    {
+                      itemkey: "ABC",
+                      notePath: "Literature/ABC.md",
+                      citekey: "new",
+                    },
+                  ],
+                }
+              : { success: true, requests: [], pending: [] },
+          ),
+        }),
+      );
+      const order: string[] = [];
+      mocks.backfillLibraryURIs.mockImplementation(async (options: unknown) => {
+        expect(options).toEqual({ notify: false });
+        order.push("backfill");
+        return true;
+      });
+      mocks.post.mockImplementation(async (request: any) => {
+        if (request.action === "sync") {
+          order.push("sync");
+          return {
+            success: true,
+            results: [{ citekey: "new", status: "skipped" }],
+          };
+        }
+        return { success: true };
+      });
+
+      startAutoSync();
+      await vi.advanceTimersByTimeAsync(9000);
+
+      expect(mocks.backfillLibraryURIs).toHaveBeenCalledTimes(1);
+      expect(order.indexOf("backfill")).toBeGreaterThanOrEqual(0);
+      expect(order.indexOf("backfill")).toBeLessThan(order.indexOf("sync"));
+    } finally {
+      stopAutoSync();
+      vi.useRealTimers();
+    }
+  });
   it("pauses startup checks while preserving recovery, manual checks and resuming", async () => {
     vi.useFakeTimers();
     try {
@@ -2337,6 +2394,7 @@ describe("automatic note reconciliation", () => {
           ([request]: any[]) => request.action === "sync",
         ),
       ).toBe(false);
+      expect(mocks.backfillLibraryURIs).not.toHaveBeenCalled();
 
       rescan = "manual-1";
       await vi.advanceTimersByTimeAsync(9000);

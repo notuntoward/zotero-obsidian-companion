@@ -37,9 +37,19 @@ All commands are accessed by right-clicking any item in your Zotero library and 
 - **Copy Zotero Item Key:** Copies the selected item's Zotero item key (one key per line for multiple items) to the clipboard.
 - **Toggle Left/Right Pane:** Quickly toggles Zotero's left and right sidebars for focused reading.
 
-Citation-key and attachment changes are also reconciled automatically when both plugins are running, unless automatic checks are paused in Zotero's Obsidian settings. Reviews wait in Obsidian's **Zotero reviews** status-bar entry until selected; Zotero must be running to prepare a review. For setup, confirmation prompts, preserved fields, and limitations, see [Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
+Citation-key, attachment, and adopted collection changes are reconciled
+automatically when both plugins are running, unless automatic checks are paused
+in Zotero's Obsidian settings. Reviews wait in Obsidian's **Zotero reviews**
+status-bar entry until selected; Zotero must be running to prepare a review. For
+setup, confirmation prompts, preserved fields, and limitations, see
+[Updating existing literature notes](https://github.com/notuntoward/obsidian-perplexity-saver#updating-existing-literature-notes).
 
-Collection membership is refreshed by **Update Lit Note**, not automatically.
+Automatic collection updates apply only when a managed note still matches its
+saved baseline. New notes get a baseline at creation; existing notes that
+already match Zotero are adopted without a review. Genuine differences are
+held for a batch decision in **Zotero reviews**: apply Zotero's values, keep
+Obsidian's values and stop managing, or defer. Missing collection data from an
+older companion does not clear the note property.
 If Zotero cannot read a collection for an item, note creation and updates stop
 instead of saving an incomplete collection list.
 

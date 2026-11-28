@@ -317,7 +317,11 @@ function getCollections(item: any): string[] {
         `Cannot read Zotero collection ${id} for item ${item.key}.`,
       );
     const name: string = collection.name;
-    const value = name.toLowerCase().replace(/ /g, "_");
+    // Mirrors Perplexity Saver's normalizePropertyValue.
+    const value = name
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
     if (normalized.has(value)) collisions.add(value);
     normalized.add(value);
     names.push(name);

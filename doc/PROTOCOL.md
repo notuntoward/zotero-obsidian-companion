@@ -1,0 +1,95 @@
+# Zotero–Saver protocol
+
+The Zotero companion posts to `http://127.0.0.1:27124/lit-note`.
+
+## Requests
+
+- `{ action: "create" | "open", data: ZoteroItemPayload[] }`
+- `{ action: "open-note-path", notePath, itemkey }` opens a reported note after
+  rechecking its path and item key; it does not change the note.
+- `{ action: "cleanup-obs-lit-note-tag" }` removes only the old `obsLitNote`
+  Zotero tag and normalized `obslitnote` note value. It returns counts and
+  per-note errors; all other tags are preserved.
+- `{ action: "fill-missing-library-uris", notes: [{ notePath, itemkey, libraryURI }] }`
+  fills missing identities only after unique Zotero matches are rechecked.
+  Saver rechecks note-level uniqueness and metadata, then places URIs after
+  `zotero_tags`, or after `zotero_item_key` when tags are absent.
+  The companion runs this backfill before automatic startup reconciliation and
+  requested manual scans. It fills only notes with a unique active match across
+  accessible user and group libraries; ambiguous or missing matches are left
+  unchanged.
+- `{ action: "sync" | "update", data: ZoteroItemPayload[] }` performs automatic
+  reconciliation or prepares a previewed metadata update.
+- `{ action: "apply-sync" | "validate-zotero-key", token, data: [ZoteroItemPayload] }`
+  revalidates and applies a one-use prepared plan.
+- `{ action: "review-uncertain", itemkey, libraryURI, operation, title?, attachments?, attachmentCheckError?, attachmentPaths? }`
+  reports an unknown outcome, current attachment details, and any source or
+  destination paths saved before a move. Older journal entries may lack paths.
+
+Zotero batches selected items into one request. The companion refreshes the
+non-tag note indicator after creation and reports error results in one alert.
+
+## Replies and plans
+
+Saver replies with `{ success, results: [{ citekey, status, error? }] }`.
+Results can include `created`, `overwritten`, `opened`, `updated`, `skipped`,
+`missing`, `error`, `attachment-error`, `pending-review`, `prepared`, and
+`set-zotero-key`. A prepared result carries a one-use token; `set-zotero-key`
+also carries expected and selected keys.
+
+Before applying a plan or changing Zotero, re-read the payload and validate the
+token, saved keys, note snapshot, and attachment snapshots. Never treat a
+prepared plan as a completed update. If `needsAttachmentCheck` is set, enumerate
+attachment paths in accessible user and group libraries, including trashed
+items, and send `zoteroAttachmentPaths` with `apply-sync`. Fail closed when the
+inventory or any required path is unavailable.
+
+`GET /lit-note-indicator-identities` returns a complete indicator snapshot and
+the count of notes without item keys. The column swaps snapshots atomically and
+persists only identities; cached matches are stale when offline, and missing or
+ambiguous identities remain unknown. `GET /lit-note-identities` returns
+indexed identities, note modification metadata, and Obsidian note paths.
+
+When citation keys differ, the companion sends `citationKeyCheck` with matches
+from accessible Zotero libraries and rechecks it before changing Zotero.
+Lookup failures stop the update.
+
+## Collections and automatic reconciliation
+
+Sync payloads carry the current direct collection names when Zotero lookup
+succeeds. Saver normalizes those names for `zotero_collections` (lowercase;
+spaces and underscores become `-`; the Companion's collision log mirrors this);
+hierarchy is not represented. An explicit empty `collections: []` means no memberships and
+keeps `zotero_collections` present as an empty list. Missing `collections` (including from an older
+companion) is unknown data, not an empty list, and must preserve the note value.
+`zotero_tags` and `zotero_collections` are list properties; keep each property
+present when its list is empty.
+
+Automatic collection updates are permitted only for notes whose collection
+management is `managed` and whose current `zotero_collections` still matches the
+last accepted baseline. Baselines are keyed by Zotero library URI and item key.
+A successful automatic update advances the baseline. Creation records the
+generated value as the baseline. Existing uniquely associated notes without a
+baseline can be adopted without a review only when their current value matches
+Zotero's value. Managed notes that already match Zotero refresh a stale baseline
+without rewriting the note or requiring a review. Stopped collection management
+and unresolved interruptions are not reset by this matching-values path.
+If the actual note exactly matches a managed baseline after the shared list
+normalization, Saver saves that format-only baseline migration before
+reconciling Zotero changes. It does not adopt differing note memberships.
+Genuine differences hold automatic updates for a single batch
+review; no collection value is overwritten automatically. The user can apply
+Zotero's current memberships, keep the Obsidian values and stop managing
+collections, or defer. Deferral leaves the review held. Applying Zotero records
+the new managed baseline; keeping Obsidian records that management is disabled.
+
+The automatic path waits for stable snapshots and retries when Obsidian becomes
+available. Payloads identify the Zotero library by name and attachments by item
+key. After changing a citekey in Zotero, `zoteroChanges` records the prior key
+and only file moves verified by the same attachment item key; preserve it when
+revalidating and applying the one-use plan.
+
+Automatic checks can be paused; recovery and manual checks must remain
+available. Paused scan starts preserve existing reviews and finish with
+`paused`. Keep the automatic-attachment journal when recovery returns
+`automaticRecoveryPending` until the recovered plan has been durably handed off.

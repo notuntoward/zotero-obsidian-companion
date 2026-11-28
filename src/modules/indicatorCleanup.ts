@@ -11,17 +11,23 @@ const OLD_TAG = "obsLitNote";
 let running = false;
 let libraryCleanupRunning = false;
 
-export async function fillMissingLibraryURIs(): Promise<void> {
-  if (libraryCleanupRunning) return;
+export async function fillMissingLibraryURIs(
+  options: { notify?: boolean } = {},
+): Promise<boolean> {
+  const notify = options.notify !== false;
+  if (libraryCleanupRunning) return false;
   libraryCleanupRunning = true;
   const win = getMainWindow();
   try {
-    const connection = await ensureObsidianConnection({
-      progressMessage: "Connecting to identify literature notes...",
-    });
-    if (!connection.ready) return;
-    showNotice("Checking literature note library identities...");
+    const connection = await ensureObsidianConnection(
+      notify
+        ? { progressMessage: "Connecting to identify literature notes..." }
+        : {},
+    );
+    if (!connection.ready) return false;
+    if (notify) showNotice("Checking literature note library identities...");
     const { identities, unidentifiedNotes } = await getIndicatorIdentities();
+    if (!notify && identities.every((note) => note.libraryURI)) return true;
     const counts = new Map<string, number>();
     for (const note of identities) {
       counts.set(note.itemkey, (counts.get(note.itemkey) ?? 0) + 1);
@@ -87,6 +93,7 @@ export async function fillMissingLibraryURIs(): Promise<void> {
         libraryURI,
       });
     }
+    if (!notify && notes.length === 0) return true;
     const currentLibraries = Zotero.Libraries.getAll()
       .filter(
         (library: any) =>
@@ -108,7 +115,7 @@ export async function fillMissingLibraryURIs(): Promise<void> {
         );
       }
     }
-    if (!addon.data.alive) return;
+    if (!addon.data.alive) return false;
     const result = await postToObsidian({
       action: "fill-missing-library-uris",
       notes,
@@ -137,6 +144,11 @@ export async function fillMissingLibraryURIs(): Promise<void> {
     } catch (error) {
       errors.push(`Could not refresh indicators: ${String(error)}`);
     }
+    if (!notify && (errors.length || result.unfilled)) {
+      throw new Error(
+        `Library identity backfill was incomplete: ${[...errors, `${result.unfilled} notes were not updated.`].join(" ")}`,
+      );
+    }
     const summary = `Added library identities to ${result.updated} notes and repositioned existing identities in ${result.reordered} notes. Skipped ${skipped} notes without a unique match.`;
     const details = [
       ...(unidentifiedNotes
@@ -145,16 +157,21 @@ export async function fillMissingLibraryURIs(): Promise<void> {
       ...skippedDetails,
       ...errors,
     ];
-    showAlert(
-      win,
-      errors.length
-        ? "Library identity cleanup incomplete"
-        : "Library identity cleanup complete",
-      `${summary}${details.length ? `\n\n${details.join("\n")}` : ""}${errors.length ? "\n\nRetry after resolving these errors." : ""}`,
-    );
+    if (notify) {
+      showAlert(
+        win,
+        errors.length
+          ? "Library identity cleanup incomplete"
+          : "Library identity cleanup complete",
+        `${summary}${details.length ? `\n\n${details.join("\n")}` : ""}${errors.length ? "\n\nRetry after resolving these errors." : ""}`,
+      );
+    }
+    return true;
   } catch (error) {
+    if (!notify) throw error;
     Zotero.logError(error);
     showAlert(win, "Library identity cleanup failed", String(error));
+    return false;
   } finally {
     libraryCleanupRunning = false;
   }

@@ -34,89 +34,46 @@ rule dependencies. `maintain` implicitly adds commons for any Obsidian review
 target; positional `all` selects the entire inventory.
 <!-- END SUITE IMPACT -->
 
-Before and after contract or behavior changes, run
-`node ../obsidian-commons/scripts/inventory.mjs impact`. Treat the listed
-protocol peers as required; do not scan unrelated sibling repositories.
-Run `node ../obsidian-commons/scripts/inventory.mjs release-check` before a
-source release to verify the configured artifact and project metadata.
+## Impact usage
 
-## Build, verify, deploy
+Run `node ../obsidian-commons/scripts/inventory.mjs impact` once at task start
+and once after the final edits in each repository you change. Keep only the
+`Explicit contracts:` and `Symmetry review:` sections (required contract peers
+and same-surface symmetry candidates); do not carry the full report into
+context. Run peer checks only when the report or changed contract requires them.
 
-- Type-check: `npx tsc --noEmit`
-- Lint/format check: `npm run lint:check` (use `npm run lint:fix` to fix)
-- Tests: `npm test` (Vitest, `tests/*.test.ts`)
-- Build: `npm run build` -> `build/obsidian.xpi`
-- `build/` is the single build-output location. Do not add another.
-- After changing `src/`, rebuild and grep
-  `build/addon/content/scripts/zoteroobsidian.js` for a fingerprint of the
-  change before declaring the task done.
-- Zotero loads the installed XPI, so a source build is not live until the XPI
-  is replaced. Zotero must be closed to overwrite
-  `%APPDATA%\Zotero\Zotero\Profiles\0vqgu3uw.default\extensions\zotero-obsidian-companion@notuntoward.xpi`.
-  Back it up first under the profile's `obsidian-companion-xpi-backups\`, and
-  confirm the installed file's SHA-256 matches `build/obsidian.xpi`. The
-  version stays `0.0.1`, so follow the global "Zotero plugins" rule for the
-  startup cache.
+## Validation
+
+- Inner loop after each edit: `npx vitest run <changed test file>` and
+  `npx tsc --noEmit`.
+- Final gate once per task: `npm run lint:check`, `npm test`, and
+  `npm run build`. After a source change, verify
+  `build/addon/content/scripts/zoteroobsidian.js` contains a fingerprint of the
+  change. `build/` is the single build-output location.
+- Do not run `npm run check && npm test` or a production build after every edit.
+
+## Verification before reporting done
+
+For UI changes, inspect a screenshot at normal and narrow sizes and verify
+alignment, centering, sizing, and stale or cached states. State when a manual
+check in Zotero or Obsidian is still needed.
 
 ## Zotero version
 
 Targets Zotero 10 only (`strict_min_version: "10.0"`, esbuild target
 `firefox140`). Do not add compatibility shims for Zotero 7.
 
-## Cross-plugin contract (must stay in sync with the Obsidian plugin)
+## Cross-plugin contract
 
-The Zotero side posts to `http://127.0.0.1:27124/lit-note`:
+The Zotero side posts to `http://127.0.0.1:27124/lit-note`. Before changing
+the protocol or reconciliation behavior, read
+[`doc/PROTOCOL.md`](doc/PROTOCOL.md) for request and response shapes, statuses,
+collection semantics, and plan validation.
 
-- `{ action: "create", data: ZoteroItemPayload[] }`
-- `{ action: "open", data: ZoteroItemPayload[] }`
-- `{ action: "open-note-path", notePath, itemkey }` opens a reported note after rechecking its path and item key, without changing it
-- `{ action: "cleanup-obs-lit-note-tag" }` removes the normalized old indicator from note `zotero_tags` and returns counts and per-note errors
-- `{ action: "fill-missing-library-uris", notes: [{ notePath, itemkey, libraryURI }] }` fills missing note identities after unique Zotero matches are rechecked; the server rechecks uniqueness and note metadata and places new and existing URIs after `zotero_tags` (or `zotero_item_key` when tags are absent)
-- `{ action: "sync", data: ZoteroItemPayload[] }` for automatic reconciliation
-- `{ action: "update", data: ZoteroItemPayload[] }` for previewed metadata updates
-- `{ action: "apply-sync" | "validate-zotero-key", token, data: [ZoteroItemPayload] }` to revalidate an approved plan
-- `{ action: "review-uncertain", itemkey, libraryURI, operation, title?, attachments?, attachmentCheckError?, attachmentPaths? }` reports an unknown outcome, current attachment details, and any source/destination paths saved before the move; older journal entries may lack those paths
-
-Obsidian replies with `{ success, results: [{ citekey, status, error? }] }`.
-Sync payloads also carry current direct collection names, but automatic
-collection updates are not implemented yet; missing collection data is not an
-empty collection list.
-In addition to `created | overwritten | opened | updated | skipped | missing | error`,
-reconciliation can return `prepared` with a one-use token, or `set-zotero-key`
-with a token and expected/selected keys. Re-read the Zotero payload and validate
-the token before applying a plan or changing Zotero; verify saved keys and
-refresh attachment snapshots before continuing. Never treat a prepared plan as
-a completed update. `GET /lit-note-indicator-identities` returns a complete indicator snapshot and a count of notes without item keys; the column swaps snapshots atomically, persists only identities, and shows cached matches as stale when offline. Missing or ambiguous identities remain unknown. `GET /lit-note-identities` returns indexed identities and
-note modification metadata and Obsidian note paths. When citation keys differ, the companion sends a
-`citationKeyCheck` listing matching items in accessible Zotero libraries. It
-rechecks that result before changing Zotero; lookup failures stop the update.
-When a prepared plan has `needsAttachmentCheck`, enumerate the file paths of
-attachments in accessible user and group libraries, including trashed items,
-and supply them as `zoteroAttachmentPaths` on `apply-sync`. Fail closed when
-the inventory or a file path is unavailable.
-The automatic path waits for stable snapshots and retries when Obsidian becomes
-available again. Payloads identify the Zotero library by name and attachments by
-item key. After changing a citekey in Zotero, `zoteroChanges` records the prior
-citekey and only file moves verified by the same attachment item key; preserve
-this summary when revalidating and applying the resulting one-use plan.
-
-Automatic checks can be paused in the companion; recovery and manual checks must
-remain available. Paused scan starts preserve existing reviews and end with the
-`paused` status. Retain the automatic-attachment journal when recovery returns
-`automaticRecoveryPending` until the recovered plan has been durably handed off.
-
-`src/modules/actions.ts` batches all selected items into ONE request, refreshes
-the non-tag note indicator after creation, and reports error results in a single
-alert. The legacy cleanup code removes only the `obsLitNote` Zotero tag and the
-normalized `obslitnote` note value; preserve all other tags.
-
-- Never reintroduce a Zotero-side overwrite/confirm dialog. Decisions about an
-  existing or missing note are made in Obsidian's modal so the prompt is never
-  hidden behind Obsidian and looks the same in every case.
-- `postToObsidian` uses a 120s timeout because the user may be answering that
-  modal. Do not lower it without a concrete reason.
-- Changing the payload shape or statuses requires updating both plugins and
-  both test suites.
+- Never add a Zotero-side overwrite or confirmation dialog; Obsidian's modal
+  owns that decision.
+- Do not lower `postToObsidian`'s 120-second timeout without a concrete reason.
+- A protocol change requires updating both plugins and both test suites.
 
 ## Generic Zotero plugin rules
 
@@ -126,43 +83,19 @@ API changes) live in the global rule "Zotero plugins" in
 `~/.config/kilo/AGENTS.md`, managed through chezmoi from
 `notuntoward/kilo-dotfiles`. Change them there, not here.
 
+## Zotero runtime notes
+
+Before changing item menus, progress notices, Zotero async API usage, bootstrap
+caching, or XPI installation, read [`doc/ZOTERO-NOTES.md`](doc/ZOTERO-NOTES.md).
+Follow the global "Zotero plugins" rule for generic startup-cache handling.
+
 ## Companion-specific notes
 
-- `addon/bootstrap.js` loads the bundle with `ignoreCache: true`;
-  `tests/hooks.test.ts` guards it.
 - Every user command appears in the item context menu (`src/modules/menu.ts`)
   and can have a shortcut. When adding a command, update `actions.ts`,
   `menu.ts`, `hotkeys.ts`, `addon/prefs.js`, `preferences.xhtml`,
   `preferenceScript.ts`, both `mainWindow.ftl` locales, and the README. Only
   the pane toggles are hidden, by the "Show pane toggling commands" preference.
-
-## Zotero gotchas in this plugin
-
-- Item menus use Zotero's native `Zotero.MenuManager.registerMenu`, registered
-  once in `onStartup` (not per window). The toolkit's `Menu` helper was removed
-  in stable `zotero-plugin-toolkit` releases.
-- Progress-window icons: Zotero 10 removed `skin/tick.png` and `skin/cross.png`.
-  `src/utils/ztoolkit.ts` registers the plugin's own
-  `content/icons/success.svg` and `cross.svg` via `setIconURI`. Do not point
-  icons back at Zotero PNG paths.
-- Progress windows hard-code `min-width: 300px` and a 250px item label, which
-  leaves dead space around short notices (and wraps/clips longer ones).
-  `src/utils/progressNotice.ts` injects a compact style into the progress
-  window document; use `showNotice()` for simple notices instead of building
-  windows ad hoc. The progress window is a XUL/XHTML hybrid document whose
-  _default_ (unprefixed) namespace is XUL, not HTML: a plain
-  `document.createElement("style")` there silently creates a non-stylesheet
-  element that Gecko's style engine ignores. Any injected `<style>` MUST use
-  `document.createElementNS("http://www.w3.org/1999/xhtml", "style")`. Also
-  call `sizeToContent()` again after changing a notice's text later
-  (`resizeCompactProgressWindow()`) — `setText()` does not resize the window
-  on its own, only `addLines()`/`addDescription()` do. After resizing, call
-  `Zotero.ProgressWindowSet.tile(win)` and constrain the notice to its screen's
-  available bounds; resizing without repositioning can leave it off-screen.
-- `Zotero.Promise` is a shim in Zotero 10: only `delay`, `defer`, and `method`
-  are guaranteed. Do not use Bluebird-only methods.
-- Guard long-running async work against shutdown with `addon.data.alive`
-  (see `obsidianConnection.ts`).
 
 ## Tests
 

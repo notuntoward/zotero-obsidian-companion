@@ -8,6 +8,7 @@ import { isObsidianServerReady, postToObsidian } from "./obsidianConnection";
 import { resolveNoteKeyChoices } from "./resolveNoteKeys";
 import { addCitationKeyCheck, getNoteIdentities } from "./citationKeyCheck";
 import type { NoteIdentity } from "./citationKeyCheck";
+import { fillMissingLibraryURIs } from "./indicatorCleanup";
 import { moveReviewedAttachments } from "./attachmentMover";
 import type { AttachmentMoveRequest } from "./attachmentMover";
 import { getAttachmentBaseValidationState } from "./attachmentBaseMonitor";
@@ -48,6 +49,7 @@ let dismissSyncNotice: (() => void) | undefined;
 let scanComplete = false;
 let scanSessionMismatch = false;
 let scanIssue = "";
+let libraryURIsBackfilled = false;
 const scannedIdentities = new Set<string>();
 const reportedUncertain = new Set<string>();
 let reviewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1699,6 +1701,14 @@ async function run(): Promise<void> {
       if (getAttachmentBaseValidationState() === "pending") return;
       await reportInitialJournal();
       scanIssue = "";
+      if (!(scanPaused && !scanManual) && !libraryURIsBackfilled) {
+        if (!(await fillMissingLibraryURIs({ notify: false }))) {
+          throw new Error(
+            "Could not complete startup library identity backfill.",
+          );
+        }
+        libraryURIsBackfilled = true;
+      }
       scanWorkDone =
         scanPaused && !scanManual ? true : await syncExistingNotesOnce(true);
       if (!scanWorkDone) {
@@ -1774,6 +1784,7 @@ function restartScan(delay: number, manual = false): void {
   scanManual = manual;
   scanComplete = false;
   scanSessionMismatch = false;
+  libraryURIsBackfilled = false;
   scannedIdentities.clear();
   reportedUncertain.clear();
   // A full recheck starts with Obsidian's review list cleared, so items it already reported must be sent again.
@@ -1806,6 +1817,7 @@ export function stopAutoSync(): void {
   allowReviewsBeforeScan = false;
   scanComplete = false;
   scanSessionMismatch = false;
+  libraryURIsBackfilled = false;
   scannedIdentities.clear();
   reportedUncertain.clear();
   recoveredAutomatic.clear();

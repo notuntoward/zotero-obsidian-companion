@@ -130,6 +130,38 @@ describe("old indicator cleanup", () => {
       expect(mocks.post).not.toHaveBeenCalled();
       expect(mocks.alert.mock.calls[0][2]).toContain("matches changed");
     });
+
+    it("backfills unique identities silently during automatic sync", async () => {
+      mocks.identities.mockResolvedValue({
+        identities: [{ itemkey: "ONE", notePath: "one.md" }],
+        unidentifiedNotes: 0,
+      });
+      const item = { isRegularItem: () => true, deleted: false };
+      (
+        globalThis as any
+      ).Zotero.Items.getByLibraryAndKeyAsync.mockImplementation(
+        async (id: number) => (id === 1 ? item : null),
+      );
+      mocks.post.mockResolvedValue({
+        success: true,
+        updated: 1,
+        reordered: 0,
+        unfilled: 0,
+        errors: [],
+      });
+
+      await expect(fillMissingLibraryURIs({ notify: false })).resolves.toBe(
+        true,
+      );
+
+      expect(mocks.post).toHaveBeenCalledWith({
+        action: "fill-missing-library-uris",
+        notes: [
+          { itemkey: "ONE", notePath: "one.md", libraryURI: "library-1" },
+        ],
+      });
+      expect(mocks.alert).not.toHaveBeenCalled();
+    });
   });
 
   it("removes only the authorized Zotero tag and reports both counts", async () => {

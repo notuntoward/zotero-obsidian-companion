@@ -246,7 +246,7 @@ describe("attachment payloads", () => {
     ]);
     expect(z.logError).toHaveBeenCalledWith(
       expect.stringContaining(
-        "same zotero_collections value for item ABC: research_papers",
+        "same zotero_collections value for item ABC: research-papers",
       ),
     );
   });
